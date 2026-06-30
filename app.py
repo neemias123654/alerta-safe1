@@ -6,28 +6,30 @@ from streamlit_cookies_controller import CookieController
 
 cookies = CookieController()
 
-# SENHA MESTRE DO DESENVOLVEDOR (Só você sabe)
-# Mude para a senha que você quiser antes de entregar o app
+# SENHA MESTRE DO DESENVOLVEDOR
 SENHA_DESENVOLVEDOR = "DEV_MASTER_2026"
 
 # --- CONFIGURAÇÃO DO BANCO DE DADOS ---
 def init_db():
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
+    
+    # MODIFICADO: Adicionada a coluna 'usuario_email' para saber a quem pertence o funcionário
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS funcionarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nome TEXT NOT NULL,
             cargo TEXT NOT NULL,
             validade_curso TEXT NOT NULL,
-            validade_aso TEXT NOT NULL
+            validade_aso TEXT NOT NULL,
+            usuario_email TEXT
         )
     ''')
-    # Adicionamos a coluna 'status_pagamento' na tabela de usuários (1 = Ativo, 0 = Bloqueado por falta de pagamento)
+    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
             senha TEXT NOT NULL,
             cpf TEXT NOT NULL,
             telefone TEXT NOT NULL,
@@ -37,30 +39,23 @@ def init_db():
     conn.commit()
     conn.close()
 
-def contar_usuarios():
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM usuarios")
-    total = cursor.fetchone()[0]
-    conn.close()
-    return total
-
 def cadastrar_usuario(email, senha, cpf, telefone):
-    if contar_usuarios() >= 1:
-        return False
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    # Cadastra o usuário com status_pagamento = 1 (Ativo) por padrão
-    cursor.execute("INSERT INTO usuarios (email, senha, cpf, telefone, status_pagamento) VALUES (?, ?, ?, ?, 1)", 
-                   (email, senha, cpf, telefone))
-    conn.commit()
-    conn.close()
-    return True
+    try:
+        conn = sqlite3.connect('alerta_safe.db')
+        cursor = conn.cursor()
+        # MODIFICADO: Removida a trava de 1 usuário. Agora qualquer um pode se cadastrar.
+        cursor.execute("INSERT INTO usuarios (email, senha, cpf, telefone, status_pagamento) VALUES (?, ?, ?, ?, 1)", 
+                       (email, senha, cpf, telefone))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        # Se o e-mail já existir, o banco de dados rejeita duplicatas por causa do 'UNIQUE'
+        return "email_existe"
 
 def verificar_login(email, senha):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    # Puxamos também o status_pagamento do banco
     cursor.execute("SELECT email, telefone, status_pagamento FROM usuarios WHERE email = ? AND senha = ?", (email, senha))
     usuario = cursor.fetchone()
     conn.close()
@@ -74,44 +69,47 @@ def buscar_usuario_por_email(email):
     conn.close()
     return usuario
 
-# --- FUNÇÕES EXCLUSIVAS DO DESENVOLVEDOR (BACKDOOR DE CONTROLE) ---
-def dev_bloquear_usuario():
-    """Bloqueia o cliente mudando o status para 0."""
+# --- FUNÇÕES DO DESENVOLVEDOR ---
+def dev_bloquear_usuario(email_alvo):
+    """Bloqueia um usuário específico pelo e-mail."""
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET status_pagamento = 0")
+    cursor.execute("UPDATE usuarios SET status_pagamento = 0 WHERE email = ?", (email_alvo,))
     conn.commit()
     conn.close()
 
-def dev_desbloquear_usuario():
-    """Desbloqueia o cliente voltando o status para 1."""
+def dev_desbloquear_usuario(email_alvo):
+    """Desbloqueia um usuário específico pelo e-mail."""
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET status_pagamento = 1")
+    cursor.execute("UPDATE usuarios SET status_pagamento = 1 WHERE email = ?", (email_alvo,))
     conn.commit()
     conn.close()
 
-# --- DEMAIS FUNÇÕES DO APP ---
-def adicionar_funcionario(nome, cargo, validade_curso, validade_aso):
+# --- FUNÇÕES DE FUNCIONÁRIOS (AGORA FILTRADAS POR USUÁRIO) ---
+def adicionar_funcionario(nome, cargo, validade_curso, validade_aso, usuario_email):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO funcionarios (nome, cargo, validade_curso, validade_aso) VALUES (?, ?, ?, ?)", 
-                   (nome, cargo, validade_curso, validade_aso))
+    # MODIFICADO: Salva o e-mail do dono do cadastro junto com o funcionário
+    cursor.execute("INSERT INTO funcionarios (nome, cargo, validade_curso, validade_aso, usuario_email) VALUES (?, ?, ?, ?, ?)", 
+                   (nome, cargo, validade_curso, validade_aso, usuario_email))
     conn.commit()
     conn.close()
 
-def buscar_funcionario_por_id(id_busca):
+def buscar_funcionario_por_id(id_busca, usuario_email):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT id, nome, cargo, validade_curso, validade_aso FROM funcionarios WHERE id = ?", (id_busca,))
+    # MODIFICADO: Garante que a busca só retorne o funcionário se ele pertencer ao usuário logado
+    cursor.execute("SELECT id, nome, cargo, validade_curso, validade_aso FROM funcionarios WHERE id = ? AND usuario_email = ?", (id_busca, usuario_email))
     resultado = cursor.fetchone()
     conn.close()
     return resultado
 
-def listar_todos_funcionarios():
+def listar_todos_funcionarios(usuario_email):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT id, nome, cargo, validade_curso, validade_aso FROM funcionarios")
+    # MODIFICADO: Filtra a lista geral trazendo apenas os registros criados por esse e-mail
+    cursor.execute("SELECT id, nome, cargo, validade_curso, validade_aso FROM funcionarios WHERE usuario_email = ?", (usuario_email,))
     resultados = cursor.fetchall()
     conn.close()
     return resultados
@@ -128,8 +126,8 @@ def calcular_status(data_str):
     else:
         return "🟢 EM DIA"
 
-# --- CONFIGURAÇÃO DA INTERFACE VISUAL ---
-st.set_page_config(page_title="AlertaSafe Privado", layout="wide", page_icon="🛡️")
+# --- INTERFACE VISUAL ---
+st.set_page_config(page_title="AlertaSafe Multi-Tenant", layout="wide", page_icon="🛡️")
 init_db()
 
 cookie_login = cookies.get('alertasafe_user')
@@ -141,11 +139,10 @@ if "dados_usuario" not in st.session_state:
 if "bloqueado_por_pagamento" not in st.session_state:
     st.session_state.bloqueado_por_pagamento = False
 
-# Se o cookie existe, valida o status de pagamento antes de logar direto
 if cookie_login and not st.session_state.logado:
     usuario_banco = buscar_usuario_por_email(cookie_login)
     if usuario_banco:
-        if usuario_banco[2] == 0:  # Se status_pagamento for 0
+        if usuario_banco[2] == 0:
             st.session_state.bloqueado_por_pagamento = True
         else:
             st.session_state.logado = True
@@ -155,32 +152,28 @@ if cookie_login and not st.session_state.logado:
 if st.session_state.bloqueado_por_pagamento:
     st.error("🛑 SISTEMA SUSPENSO")
     st.title("Aviso Importante: Acesso Bloqueado")
-    st.markdown("""
-    Prezado cliente, o acesso a esta plataforma foi **suspenso temporariamente por falta de pagamento** ou pendência financeira.
-    
-    Para regularizar a sua situação e reativar o banco de dados imediatamente, entre em contato com o suporte do desenvolvedor.
-    """)
+    st.markdown("Prezado cliente, o acesso a esta conta foi **suspenso por pendência financeira**.")
     st.info("✉️ Suporte: suporte@alertasafe.com.br")
     
-    # Painel Secreto de Desenvolvedor na tela de bloqueio (para você reativar)
     with st.expander("🛠️ Área do Desenvolvedor (Oculto)"):
+        email_reativar = st.text_input("E-mail da conta a reativar:")
         senha_dev = st.text_input("Insira a Senha Mestre de Dev:", type="password", key="dev_key_block")
-        if st.button("Reativar Sistema Agora", key="btn_reactivate"):
-            if senha_dev == SENHA_DESENVOLVEDOR:
-                dev_desbloquear_usuario()
+        if st.button("Reativar Conta Agora"):
+            if senha_dev == SENHA_DESENVOLVEDOR and email_reativar:
+                dev_desbloquear_usuario(email_reativar)
                 st.session_state.bloqueado_por_pagamento = False
                 st.session_state.logado = False
                 cookies.remove('alertasafe_user')
-                st.success("Sistema reativado com sucesso! Atualize a página.")
+                st.success("Conta reativada! Atualize a página.")
                 st.rerun()
             else:
-                st.error("Senha incorreta.")
+                st.error("Dados incorretos ou senha inválida.")
 
 # --- TELA DE AUTENTICAÇÃO PADRÃO ---
 elif not st.session_state.logado:
-    st.title("🔐 AlertaSafe - Área Restrita")
+    st.title("🔐 AlertaSafe - Plataforma de Segurança")
     
-    aba_login, aba_novo_cadastro, aba_dev = st.tabs(["Acessar Conta", "Criar Conta Administrador", "🛠️ Painel Dev"])
+    aba_login, aba_novo_cadastro, aba_dev = st.tabs(["Acessar Conta", "Criar Nova Conta", "🛠️ Painel Dev"])
     
     with aba_login:
         st.subheader("Faça seu Login")
@@ -190,7 +183,7 @@ elif not st.session_state.logado:
         if st.button("Entrar no Sistema"):
             usuario = verificar_login(email_login, senha_login)
             if usuario:
-                if usuario[2] == 0:  # Se o status_pagamento for 0, bloqueia na hora
+                if usuario[2] == 0:
                     st.session_state.bloqueado_por_pagamento = True
                     st.rerun()
                 else:
@@ -203,54 +196,52 @@ elif not st.session_state.logado:
                 st.error("E-mail ou senha incorretos.")
                 
     with aba_novo_cadastro:
-        st.subheader("Cadastro de Administrador Único")
-        total_cadastrado = contar_usuarios()
-        if total_cadastrado >= 1:
-            st.error("❌ Limite de segurança atingido: Já existe um administrador cadastrado.")
-        else:
-            with st.form("form_cadastro_adm"):
-                novo_email = st.text_input("E-mail para Login:")
-                nova_senha = st.text_input("Defina uma Senha:", type="password")
-                novo_cpf = st.text_input("CPF:")
-                novo_tel = st.text_input("Telefone com DDD:")
-                if st.form_submit_button("Finalizar Cadastro"):
-                    if novo_email and nova_senha and novo_cpf and novo_tel:
-                        if cadastrar_usuario(novo_email, nova_senha, novo_cpf, novo_tel):
-                            st.success("Administrador cadastrado! Acesse a aba 'Acessar Conta'.")
-                        else:
-                            st.error("Erro ao cadastrar.")
-                    else:
-                        st.error("Preencha todos os campos.")
+        st.subheader("Cadastre sua Empresa")
+        # MODIFICADO: Não há mais limite de cadastros na tela.
+        with st.form("form_cadastro_adm"):
+            novo_email = st.text_input("E-mail de Acesso:")
+            nova_senha = st.text_input("Defina uma Senha:", type="password")
+            novo_cpf = st.text_input("CPF/CNPJ:")
+            novo_tel = st.text_input("Telefone de Alertas (com DDD):")
+            if st.form_submit_button("Criar Minha Conta"):
+                if novo_email and nova_senha and novo_cpf and novo_tel:
+                    resultado = cadastrar_usuario(novo_email, nova_senha, novo_cpf, novo_tel)
+                    if resultado == True:
+                        st.success("Conta criada com sucesso! Acesse a aba 'Acessar Conta'.")
+                    elif resultado == "email_existe":
+                        st.error("Este e-mail já está cadastrado no sistema.")
+                else:
+                    st.error("Preencha todos os campos.")
 
-    # ABA SECRETA DO DESENVOLVEDOR (Para você simular ou aplicar o bloqueio)
     with aba_dev:
-        st.subheader("Controle de Licença do Aplicativo")
-        st.caption("Apenas você, como criador do app, deve acessar esta aba utilizando sua chave.")
-        
+        st.subheader("Controle de Licenças (Exclusivo Dev)")
         senha_controle_dev = st.text_input("Senha Mestre do Desenvolvedor:", type="password", key="dev_panel_key")
+        email_alvo = st.text_input("E-mail do Cliente para Alterar:")
         
         col_bloquear, col_desbloquear = st.columns(2)
         with col_bloquear:
-            if st.button("🚨 Bloquear App (Inadimplência)", use_container_width=True):
-                if senha_controle_dev == SENHA_DESENVOLVEDOR:
-                    dev_bloquear_usuario()
-                    st.warning("O status do sistema foi alterado para: INADIMPLENTE. O cliente será bloqueado no próximo acesso.")
+            if st.button("🚨 Bloquear Conta", use_container_width=True):
+                if senha_controle_dev == SENHA_DESENVOLVEDOR and email_alvo:
+                    dev_bloquear_usuario(email_alvo)
+                    st.warning(f"A conta {email_alvo} foi bloqueada.")
                 else:
-                    st.error("Chave mestre inválida.")
+                    st.error("Dados ou senha inválidos.")
         with col_desbloquear:
-            if st.button("🟢 Desbloquear App (Pago)", use_container_width=True):
-                if senha_controle_dev == SENHA_DESENVOLVEDOR:
-                    dev_desbloquear_usuario()
-                    st.success("O status do sistema foi alterado para: ATIVO. Acesso liberado.")
+            if st.button("🟢 Liberar Conta", use_container_width=True):
+                if senha_controle_dev == SENHA_DESENVOLVEDOR and email_alvo:
+                    dev_desbloquear_usuario(email_alvo)
+                    st.success(f"A conta {email_alvo} foi liberada.")
                 else:
-                    st.error("Chave mestre inválida.")
+                    st.error("Dados ou senha inválidos.")
 
-# --- TELA PRINCIPAL (SÓ SE ESTIVER LOGADO E ATIVO) ---
+# --- TELA PRINCIPAL (LOGADO E FILTRADO) ---
 else:
+    email_usuario_logado = st.session_state.dados_usuario['email']
+    
     col_tit, col_sair = st.columns([0.85, 0.15])
     with col_tit:
         st.title("🛡️ AlertaSafe - Gerenciamento Ativo")
-        st.caption(f"Conectado como: **{st.session_state.dados_usuario['email']}**")
+        st.caption(f"Empresa conectada: **{email_usuario_logado}**")
     with col_sair:
         if st.button("🚪 Sair do Sistema"):
             st.session_state.logado = False
@@ -267,12 +258,12 @@ else:
         "📲 Central de Alertas Automatizados"
     ])
 
-    # --- ABA 1: DASHBOARD ---
+    # --- ABA 1: DASHBOARD (FILTRADO) ---
     with aba_dash:
         st.subheader("Painel Geral de Conformidade da Equipe")
-        lista_funcionarios = listar_todos_funcionarios()
+        lista_funcionarios = listar_todos_funcionarios(email_usuario_logado)
         if not lista_funcionarios:
-            st.info("Nenhum colaborador cadastrado.")
+            st.info("Nenhum colaborador cadastrado por sua empresa.")
         else:
             tabela_dados = []
             for func in lista_funcionarios:
@@ -283,12 +274,12 @@ else:
                 })
             st.table(tabela_dados)
 
-    # --- ABA 2: VALIDAÇÃO DE CAMPO ---
+    # --- ABA 2: VALIDAÇÃO DE CAMPO (FILTRADO) ---
     with aba_busca:
         st.subheader("Consulta Rápida de Segurança")
         id_busca = st.number_input("Digite o ID do Colaborador:", min_value=1, step=1, value=1)
         if st.button("Consultar", type="primary"):
-            trabalhador = buscar_funcionario_por_id(id_busca)
+            trabalhador = buscar_funcionario_por_id(id_busca, email_usuario_logado)
             if trabalhador:
                 status_curso = calcular_status(trabalhador[3])
                 status_aso = calcular_status(trabalhador[4])
@@ -300,9 +291,9 @@ else:
                 else:
                     st.success("✅ ACESSO TOTALMENTE LIBERADO")
             else:
-                st.error("ID não localizado.")
+                st.error("ID não localizado ou este funcionário não pertence à sua conta.")
 
-    # --- ABA 3: CADASTRO ---
+    # --- ABA 3: CADASTRO (SALVANDO O DONO) ---
     with aba_cadastro:
         st.subheader("Formulário de Cadastro de Funcionário")
         with st.form("form_trab", clear_on_submit=True):
@@ -312,7 +303,7 @@ else:
             aso_input = st.date_input("Vencimento do Exame Médico:")
             if st.form_submit_button("Registrar"):
                 if nome_input and cargo_input:
-                    adicionar_funcionario(nome_input, cargo_input, str(curso_input), str(aso_input))
+                    adicionar_funcionario(nome_input, cargo_input, str(curso_input), str(aso_input), email_usuario_logado)
                     st.success("Cadastrado com sucesso.")
                 else:
                     st.error("Preencha Nome e Cargo.")
@@ -320,7 +311,7 @@ else:
     # --- ABA 4: CENTRAL DE ALERTAS ---
     with aba_notificacoes:
         st.subheader("📲 Sistema de Envios Automáticos")
-        lista_funcionarios = listar_todos_funcionarios()
+        lista_funcionarios = listar_todos_funcionarios(email_usuario_logado)
         alertas_encontrados = []
         if lista_funcionarios:
             for func in lista_funcionarios:
