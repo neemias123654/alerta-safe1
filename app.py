@@ -90,10 +90,16 @@ def init_db():
     try: cursor.execute("ALTER TABLE usuarios ADD COLUMN acessos_count INTEGER DEFAULT 0")
     except sqlite3.OperationalError: pass
 
+    # Correção automática para a tabela de logs local caso ela tenha sido criada com erro
+    try: 
+        cursor.execute("ALTER TABLE logs_erros ADD COLUMN mensagem_erro TEXT")
+    except sqlite3.OperationalError: 
+        pass
+
     conn.commit()
     conn.close()
 
-# --- FUNÇÃO DE TELEMETRIA DE ERROS ---
+# --- FUNÇÃO DE TELEMETRIA DE ERROS CORRIGIDA ---
 def registrar_bug_sistema(usuario_email, erro_exception):
     try:
         conn = sqlite3.connect('alerta_safe.db')
@@ -102,8 +108,9 @@ def registrar_bug_sistema(usuario_email, erro_exception):
         msg_erro = str(erro_exception)
         rastro_completo = traceback.format_exc()
         
+        # Corrigido de 'message_erro' para 'mensagem_erro' para bater com a tabela
         cursor.execute("""
-            INSERT INTO logs_erros (usuario_email, data_hora, message_erro, rastro_tecnico)
+            INSERT INTO logs_erros (usuario_email, data_hora, mensagem_erro, rastro_tecnico)
             VALUES (?, ?, ?, ?)
         """, (usuario_email, data_atual, msg_erro, rastro_completo))
         conn.commit()
