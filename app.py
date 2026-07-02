@@ -73,7 +73,8 @@ def init_db():
             usuario_email TEXT,
             data_hora TEXT,
             mensagem_erro TEXT,
-            rastro_tecnico TEXT
+            rastro_tecnico TEXT,
+            status TEXT DEFAULT 'Pendente'
         )
     ''')
     
@@ -90,16 +91,17 @@ def init_db():
     try: cursor.execute("ALTER TABLE usuarios ADD COLUMN acessos_count INTEGER DEFAULT 0")
     except sqlite3.OperationalError: pass
 
-    # Correção automática para a tabela de logs local caso ela tenha sido criada com erro
-    try: 
-        cursor.execute("ALTER TABLE logs_erros ADD COLUMN mensagem_erro TEXT")
-    except sqlite3.OperationalError: 
-        pass
+    # Correções automáticas para a tabela de logs local
+    try: cursor.execute("ALTER TABLE logs_erros ADD COLUMN mensagem_erro TEXT")
+    except sqlite3.OperationalError: pass
+
+    try: cursor.execute("ALTER TABLE logs_erros ADD COLUMN status TEXT DEFAULT 'Pendente'")
+    except sqlite3.OperationalError: pass
 
     conn.commit()
     conn.close()
 
-# --- FUNÇÃO DE TELEMETRIA DE ERROS CORRIGIDA ---
+# --- FUNÇÃO DE TELEMETRIA DE ERROS ---
 def registrar_bug_sistema(usuario_email, erro_exception):
     try:
         conn = sqlite3.connect('alerta_safe.db')
@@ -108,10 +110,9 @@ def registrar_bug_sistema(usuario_email, erro_exception):
         msg_erro = str(erro_exception)
         rastro_completo = traceback.format_exc()
         
-        # Corrigido de 'message_erro' para 'mensagem_erro' para bater com a tabela
         cursor.execute("""
-            INSERT INTO logs_erros (usuario_email, data_hora, mensagem_erro, rastro_tecnico)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO logs_erros (usuario_email, data_hora, mensagem_erro, rastro_tecnico, status)
+            VALUES (?, ?, ?, ?, 'Pendente')
         """, (usuario_email, data_atual, msg_erro, rastro_completo))
         conn.commit()
         conn.close()
@@ -121,10 +122,17 @@ def registrar_bug_sistema(usuario_email, erro_exception):
 def listar_bugs_sistema():
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT id, usuario_email, data_hora, mensagem_erro, rastro_tecnico FROM logs_erros ORDER BY id DESC")
+    cursor.execute("SELECT id, usuario_email, data_hora, mensagem_erro, rastro_tecnico, status FROM logs_erros ORDER BY id DESC")
     erros = cursor.fetchall()
     conn.close()
     return erros
+
+def resolver_bug_sistema(id_bug):
+    conn = sqlite3.connect('alerta_safe.db')
+    cursor = conn.cursor()
+    cursor.execute("UPDATE logs_erros SET status = 'Resolvido' WHERE id = ?", (id_bug,))
+    conn.commit()
+    conn.close()
 
 def limpar_historico_bugs():
     conn = sqlite3.connect('alerta_safe.db')
@@ -492,15 +500,13 @@ else:
                 c_senha = st.text_input("Senha de Acesso:")
                 c_cpf = st.text_input("CNPJ ou CPF da Empresa:")
                 
-                # OPÇÃO 2 INTEGRADA: Tratamento preventivo no painel do dev
                 c_tel_raw = st.text_input("Telefone com DDD (Apenas números):", help="Ex: 22999998888")
                 
                 if st.form_submit_button("Gerar Conta Ativa"):
-                    # Aplica a limpeza de strings via Expressão Regular (Mantém apenas dígitos)
                     c_tel = re.sub(r'\D', '', c_tel_raw)
                     
                     if c_nome_empresa and c_email and c_senha and c_cpf and c_tel:
-                        if len(c_tel) >= 10:  # Validação simples de tamanho de DDD + Número
+                        if len(c_tel) >= 10:
                             if dev_cadastrar_cliente(c_email, c_senha, c_cpf, c_tel, c_nome_empresa):
                                 st.success(f"Empresa '{c_nome_empresa}' cadastrada com sucesso!")
                                 st.rerun()
@@ -565,10 +571,19 @@ else:
                     limpar_historico_bugs()
                     st.rerun()
                 
-                for b_id, b_user, b_data, b_msg, b_trace in lista_bugs:
+                for b_id, b_user, b_data, b_msg, b_trace, b_status in lista_bugs:
                     with st.container(border=True):
-                        st.markdown(f"🔴 **Erro #{b_id}** — disparado por `{b_user}` em `{b_data}`")
-                        st.warning(f"**Mensagem do Erro:** {b_msg}")
+                        if b_status == "Resolvido":
+                            st.markdown(f"🟢 **[RESOLVIDO] Erro #{b_id}** — Tratado por `{b_user}` em `{b_data}`")
+                            st.success(f"✔️ **Mensagem do Erro Resolvido:** {b_msg}")
+                        else:
+                            st.markdown(f"🔴 **[PENDENTE] Erro #{b_id}** — disparado por `{b_user}` em `{b_data}`")
+                            st.warning(f"⚠️ **Mensagem do Erro:** {b_msg}")
+                            
+                            if st.button("✓ Marcar como Resolvido", key=f"resolv_{b_id}"):
+                                resolver_bug_sistema(b_id)
+                                st.rerun()
+                                
                         with st.expander("🔍 Ver Rastro Técnico Completo (Traceback)"):
                             st.code(b_trace, language="python")
     else:
@@ -735,7 +750,6 @@ else:
                         if "🟡" in calcular_status(func[4]): alertas_encontrados.append({"nome": func[1], "item": "Exame Médico ASO", "venc": func[4]})
                 if not alertas_encontrados: st.success("🎉 Todos os prazos regularizados.")
                 else:
-                    # OPÇÃO 2 INTEGRADA: Garante que o telefone do cliente ativo está limpo antes de gerar o link
                     telefone_destino = re.sub(r'\D', '', str(st.session_state.dados_usuario['telefone']))
                     
                     for alerta in alertas_encontrados:
@@ -743,7 +757,6 @@ else:
                             st.markdown(f"📌 **{alerta['nome']}** — *{alerta['item']}* expira em `{alerta['venc']}`.")
                             texto_url = urllib.parse.quote(f"AlertaSafe: {alerta['nome']} item {alerta['item']} vence em {alerta['venc']}.")
                             
-                            # O link agora usa o telefone tratado de forma 100% segura
                             st.markdown(f'<a href="https://api.whatsapp.com/send?phone=55{telefone_destino}&text={texto_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;">💬 Disparar Zap</button></a>', unsafe_allow_html=True)
         
         except Exception as e:
