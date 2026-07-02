@@ -5,7 +5,7 @@ import urllib.parse
 import pandas as pd
 import io
 import traceback
-import re  # Adicionado para limpeza de caracteres de texto e telefone
+import re
 
 # --- CONFIGURAÇÕES MASTER DO DESENVOLVEDOR (PROTEÇÃO LOCAL/NUVEM) ---
 try:
@@ -13,7 +13,7 @@ try:
     EMAIL_DEV = st.secrets["EMAIL_DEV"]
     SENHA_DESENVOLVEDOR = st.secrets["SENHA_DESENVOLVEDOR"]
 except Exception:
-    # Se der erro ou estiver rodando localmente no PC, usa os padrões automáticos
+    # Se estiver rodando localmente no PC, usa os padrões automáticos
     EMAIL_DEV = "neemias123654@gmail.com"
     SENHA_DESENVOLVEDOR = "DEV_MASTER_2026"
 
@@ -78,7 +78,7 @@ def init_db():
         )
     ''')
     
-    # Migrações de segurança para bancos legados
+    # Migrações de segurança e consistência para o banco de dados
     try: cursor.execute("ALTER TABLE funcionarios ADD COLUMN area_id INTEGER")
     except sqlite3.OperationalError: pass
 
@@ -91,7 +91,6 @@ def init_db():
     try: cursor.execute("ALTER TABLE usuarios ADD COLUMN acessos_count INTEGER DEFAULT 0")
     except sqlite3.OperationalError: pass
 
-    # Correções automáticas para a tabela de logs local
     try: cursor.execute("ALTER TABLE logs_erros ADD COLUMN mensagem_erro TEXT")
     except sqlite3.OperationalError: pass
 
@@ -268,7 +267,7 @@ def deletar_funcionario(id_func, usuario_email):
     conn.commit()
     conn.close()
 
-# --- FUNÇÕES DE OUTROS CURSOS ---
+# --- FUNÇÕES DE OUTROS CURSOS EXTRA ---
 def adicionar_outro_curso(funcionario_id, nome_curso, validade, usuario_email):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
@@ -307,7 +306,10 @@ def deletar_outro_curso(id_curso, usuario_email):
 
 def calcular_status(data_str):
     hoje = datetime.today().date()
-    data_validade = datetime.strptime(data_str, "%Y-%m-%d").date()
+    try:
+        data_validade = datetime.strptime(data_str.strip(), "%Y-%m-%d").date()
+    except Exception:
+        return "🔴 VENCIDO"
     prazo_alerta = hoje + timedelta(days=30)
     
     if data_validade < hoje:
@@ -342,8 +344,10 @@ def modal_editar_funcionario(trabalhador, email_usuario_logado, dicionario_areas
     edit_area_nome = st.selectbox("Setor Operacional:", list(opcoes_area_edit.keys()), index=list(opcoes_area_edit.keys()).index(area_atual_nome))
     id_area_editado = opcoes_area_edit[edit_area_nome]
     
-    data_curso_atual = datetime.strptime(trabalhador[3], "%Y-%m-%d").date()
-    data_aso_atual = datetime.strptime(trabalhador[4], "%Y-%m-%d").date()
+    try: data_curso_atual = datetime.strptime(trabalhador[3], "%Y-%m-%d").date()
+    except: data_curso_atual = datetime.today().date()
+    try: data_aso_atual = datetime.strptime(trabalhador[4], "%Y-%m-%d").date()
+    except: data_aso_atual = datetime.today().date()
     
     col_ed1, col_ed2 = st.columns(2)
     with col_ed1:
@@ -391,11 +395,11 @@ def modal_editar_funcionario(trabalhador, email_usuario_logado, dicionario_areas
             deletar_funcionario(f_id, email_usuario_logado)
             st.rerun()
 
-# --- INTERFACE VISUAL PRINCIPAL ---
+# --- CONFIGURAÇÃO INICIAL DA PÁGINA ---
 st.set_page_config(page_title="AlertaSafe Enterprise", layout="wide", page_icon="🛡️")
 init_db()
 
-# --- SISTEMA INSTANTÂNEO DE LOGIN VIA QUERY PARAMS ---
+# --- SISTEMA DE LOGIN VIA QUERY PARAMS ---
 if "logado" not in st.session_state: st.session_state.logado = False
 if "dados_usuario" not in st.session_state: st.session_state.dados_usuario = None
 if "bloqueio_tipo" not in st.session_state: st.session_state.bloqueio_tipo = None
@@ -419,7 +423,7 @@ if url_user and not st.session_state.logado:
                     computar_acesso(user_b[0])
                     st.session_state.acesso_computado = True
 
-# Tela de Bloqueios
+# Tela de Bloqueios de Sistema
 if st.session_state.bloqueio_tipo:
     st.error("🛑 SISTEMA BLOQUEADO")
     st.info(f"✉️ Contato do Desenvolvedor: {EMAIL_DEV}")
@@ -431,7 +435,7 @@ if st.session_state.bloqueio_tipo:
         st.query_params.clear()
         st.rerun()
 
-# Tela de Login
+# Tela Inicial de Login Manual
 elif not st.session_state.logado:
     st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
     
@@ -467,7 +471,7 @@ elif not st.session_state.logado:
                     else:
                         st.error("❌ Credenciais inválidas.")
 
-# Tela Principal do Sistema (Painel de Gerenciamento)
+# Tela Principal Logada do Sistema
 else:
     tipo_usuario = st.session_state.dados_usuario['tipo']
     
@@ -489,6 +493,7 @@ else:
             
     st.write("---")
 
+    # --- ABA INTERNA DO DESENVOLVEDOR ---
     if tipo_usuario == "dev":
         aba_cad_cliente, aba_gerenciar_licencas, aba_bugs = st.tabs(["➕ Autorizar Entrada", "🏢 Empresas", "🪲 Logs de Bugs"])
         
@@ -499,20 +504,17 @@ else:
                 c_email = st.text_input("E-mail da Empresa (Será o login):")
                 c_senha = st.text_input("Senha de Acesso:")
                 c_cpf = st.text_input("CNPJ ou CPF da Empresa:")
-                
                 c_tel_raw = st.text_input("Telefone com DDD (Apenas números):", help="Ex: 22999998888")
                 
                 if st.form_submit_button("Gerar Conta Ativa"):
                     c_tel = re.sub(r'\D', '', c_tel_raw)
-                    
                     if c_nome_empresa and c_email and c_senha and c_cpf and c_tel:
                         if len(c_tel) >= 10:
                             if dev_cadastrar_cliente(c_email, c_senha, c_cpf, c_tel, c_nome_empresa):
                                 st.success(f"Empresa '{c_nome_empresa}' cadastrada com sucesso!")
                                 st.rerun()
                             else: st.error("Erro: Este e-mail já existe no banco.")
-                        else:
-                            st.error("❌ Formato de telefone inválido. Certifique-se de incluir o DDD e o número completo.")
+                        else: st.error("❌ Formato de telefone inválido.")
                     else: st.error("Preencha todos os campos obrigatórios.")
                         
         with aba_gerenciar_licencas:
@@ -561,7 +563,7 @@ else:
 
         with aba_bugs:
             st.subheader("🪲 Relatórios de Falhas em Tempo Real")
-            st.write("Erros fatais disparados pelos clientes na produção são registrados automaticamente aqui:")
+            st.write("Erros fatais disparados pelos clientes em produção aparecem instantaneamente aqui:")
             
             lista_bugs = listar_bugs_sistema()
             if not lista_bugs:
@@ -586,6 +588,8 @@ else:
                                 
                         with st.expander("🔍 Ver Rastro Técnico Completo (Traceback)"):
                             st.code(b_trace, language="python")
+
+    # --- ENGENHARIA VISUAL E PAINEL DO CLIENTE ---
     else:
         email_usuario_logado = st.session_state.dados_usuario['email']
         
@@ -622,64 +626,87 @@ else:
                 lista_funcionarios = listar_todos_funcionarios(email_usuario_logado)
                 todos_certificados_banco = listar_outros_cursos(email_usuario_logado)
                 
-                st.markdown("### 🔍 Pesquisar Colaborador")
-                termo_pesquisa = st.text_input("Digite o nome ou cargo do funcionário:", placeholder="Ex: João da Silva...").strip().lower()
-                
-                funcionarios_filtrados_busca = [f for f in lista_funcionarios if not termo_pesquisa or termo_pesquisa in f[1].lower() or termo_pesquisa in f[2].lower()]
-                
-                total_colab = len(funcionarios_filtrados_busca)
-                vencidos, atencao = 0, 0
+                # --- SISTEMA DE PESQUISA E FILTROS AVANÇADOS ---
+                col_pesq1, col_pesq2 = st.columns([0.6, 0.4])
+                with col_pesq1:
+                    termo_pesquisa = st.text_input("🔍 Pesquisar Colaborador:", placeholder="Digite o nome ou cargo...").strip().lower()
+                with col_pesq2:
+                    filtro_status = st.selectbox(
+                        "🎯 Filtrar por Situação Documental:",
+                        ["Todos", "🔴 VENCIDO", "🟡 ATENÇÃO", "🟢 EM DIA"]
+                    )
                 
                 mapa_certificados = {}
                 for cert in todos_certificados_banco:
                     func_id = cert[4]
-                    status_cert = calcular_status(cert[3])
-                    if func_id in [f[0] for f in funcionarios_filtrados_busca]:
-                        if "🔴" in status_cert: vencidos += 1
-                        if "🟡" in status_cert: atencao += 1
                     if func_id not in mapa_certificados: mapa_certificados[func_id] = []
+                    status_cert = calcular_status(cert[3])
                     mapa_certificados[func_id].append(f"{cert[2]} ({status_cert})")
 
-                for func in funcionarios_filtrados_busca:
-                    if "🔴" in calcular_status(func[3]) or "🔴" in calcular_status(func[4]): vencidos += 1
-                    if "🟡" in calcular_status(func[3]) or "🟡" in calcular_status(func[4]): atencao += 1
+                vencidos, atencao, total_colab = 0, 0, len(lista_funcionarios)
+                funcionarios_processados = []
+
+                for func in lista_funcionarios:
+                    f_id = func[0]
+                    status_curso = calcular_status(func[3])
+                    status_aso = calcular_status(func[4])
+                    lista_extras_func = mapa_certificados.get(f_id, ["-"])
+                    
+                    tem_vencido = "🔴" in status_curso or "🔴" in status_aso or any("🔴" in c for c in lista_extras_func)
+                    tem_atencao = "🟡" in status_curso or "🟡" in status_aso or any("🟡" in c for c in lista_extras_func)
+                    
+                    if tem_vencido:
+                        vencidos += 1
+                        status_geral_func = "🔴 VENCIDO"
+                    elif tem_atencao:
+                        atencao += 1
+                        status_geral_func = "🟡 ATENÇÃO"
+                    else:
+                        status_geral_func = "🟢 EM DIA"
+                        
+                    funcionarios_processados.append({
+                        "ID": f_id, "Nome Completo": func[1], "Cargo": func[2],
+                        "Venc. Curso Base": func[3], "Status Curso": status_curso,
+                        "Venc. ASO": func[4], "Status ASO": status_aso,
+                        "Certificados Extras (Status)": ", ".join(lista_extras_func),
+                        "Area_ID": func[5],
+                        "Status Geral": status_geral_func
+                    })
 
                 col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("👥 Colaboradores Listados", total_colab)
+                col_m1.metric("👥 Total de Colaboradores", total_colab)
                 col_m2.metric("🚨 Bloqueados / Vencidos", vencidos, delta="- Crítico" if vencidos > 0 else "Regularizado", delta_color="inverse")
                 col_m3.metric("⚠️ Exige Atenção (30 dias)", atencao, delta="Atenção" if atencao > 0 else "Estável", delta_color="off")
                 st.write("---")
 
-                if not funcionarios_filtrados_busca:
-                    if termo_pesquisa: st.warning(f"❌ Nenhum funcionário encontrado correspondente a '{termo_pesquisa}'.")
-                    else: st.info("💡 Nenhum colaborador cadastrado.")
+                # Aplicação prática cruzada dos filtros
+                funcionarios_filtrados = []
+                for f in funcionarios_processados:
+                    passou_texto = not termo_pesquisa or (termo_pesquisa in f["Nome Completo"].lower() or termo_pesquisa in f["Cargo"].lower())
+                    passou_status = filtro_status == "Todos" or f["Status Geral"] == filtro_status
+                    if passou_texto and passou_status:
+                        funcionarios_filtrados.append(f)
+
+                if not funcionarios_filtrados:
+                    st.warning("⚠️ Nenhum colaborador encontrado para os filtros selecionados.")
                 else:
                     funcionarios_por_area = {a_nome: [] for a_nome in dicionario_areas.values()}
                     funcionarios_sem_area = []
                     
-                    for func in funcionarios_filtrados_busca:
-                        f_id = func[0]
-                        lista_extras_func = mapa_certificados.get(f_id, ["-"])
-                        f_dados = {
-                            "ID": f_id, "Nome Completo": func[1], "Cargo": func[2],
-                            "Venc. Curso Base": func[3], "Status Curso": calcular_status(func[3]),
-                            "Venc. ASO": func[4], "Status ASO": calcular_status(func[4]),
-                            "Certificados Extras (Status)": ", ".join(lista_extras_func)
-                        }
-                        if func[5] in dicionario_areas: funcionarios_por_area[dicionario_areas[func[5]]].append(f_dados)
-                        else: funcionarios_sem_area.append(f_dados)
+                    for f in funcionarios_filtrados:
+                        if f["Area_ID"] in dicionario_areas: 
+                            funcionarios_por_area[dicionario_areas[f["Area_ID"]]].append(f)
+                        else: 
+                            funcionarios_sem_area.append(f)
                     
                     if lista_areas_cadastradas:
                         for nome_da_area, lista_funcs in funcionarios_por_area.items():
-                            deve_expandir = True if (termo_pesquisa and len(lista_funcs) > 0) else (not termo_pesquisa)
-                            if len(lista_funcs) > 0 or not termo_pesquisa:
-                                with st.expander(f"📁 Setor / Área: {nome_da_area} ({len(lista_funcs)})", expanded=deve_expandir):
-                                    if not lista_funcs: st.caption("Nenhum colaborador alocado neste setor.")
-                                    else: renderizar_grid_funcionarios(lista_funcs)
+                            if len(lista_funcs) > 0:
+                                with st.expander(f"📁 Setor / Área: {nome_da_area} ({len(lista_funcs)})", expanded=True):
+                                    renderizar_grid_funcionarios(lista_funcs)
                     
-                    if funcionarios_sem_area or (not lista_areas_cadastradas and funcionarios_sem_area):
-                        deve_expandir_geral = True if (termo_pesquisa and len(funcionarios_sem_area) > 0) else (not termo_pesquisa)
-                        with st.expander(f"❓ Sem Área Definida ({len(funcionarios_sem_area)})", expanded=deve_expandir_geral):
+                    if funcionarios_sem_area:
+                        with st.expander(f"❓ Sem Área Definida ({len(funcionarios_sem_area)})", expanded=True):
                             renderizar_grid_funcionarios(funcionarios_sem_area)
 
             with aba_cadastro:
@@ -715,17 +742,18 @@ else:
                 arquivo_lote = st.file_uploader("Escolha o arquivo (.xlsx ou .csv):", type=["xlsx", "csv"])
                 
                 if arquivo_lote is not None:
+                    # Carrega usando openpyxl automaticamente nos bastidores
                     df_carregado = pd.read_excel(arquivo_lote) if arquivo_lote.name.endswith('.xlsx') else pd.read_csv(arquivo_lote)
                     st.dataframe(df_carregado, use_container_width=True)
                     if st.button("🔥 Confirmar Importação Lote", type="primary"):
                         for _, row in df_carregado.iterrows():
-                            if row["Nome Completo"] == "João da Silva": continue
+                            if str(row["Nome Completo"]).strip() == "João da Silva": continue
                             try:
                                 val_curso = pd.to_datetime(row["Validade Curso (AAAA-MM-DD)"]).strftime("%Y-%m-%d")
                                 val_aso = pd.to_datetime(row["Validade ASO (AAAA-MM-DD)"]).strftime("%Y-%m-%d")
                                 adicionar_funcionario(str(row["Nome Completo"]), str(row["Cargo"]), val_curso, val_aso, email_usuario_logado, opcoes_lote_area[area_selecionada_lote])
                             except Exception: pass
-                        st.success("Lote importado!")
+                        st.success("Lote importado com sucesso!")
                         st.rerun()
 
             with aba_config_areas:
@@ -751,12 +779,10 @@ else:
                 if not alertas_encontrados: st.success("🎉 Todos os prazos regularizados.")
                 else:
                     telefone_destino = re.sub(r'\D', '', str(st.session_state.dados_usuario['telefone']))
-                    
                     for alerta in alertas_encontrados:
                         with st.container(border=True):
                             st.markdown(f"📌 **{alerta['nome']}** — *{alerta['item']}* expira em `{alerta['venc']}`.")
                             texto_url = urllib.parse.quote(f"AlertaSafe: {alerta['nome']} item {alerta['item']} vence em {alerta['venc']}.")
-                            
                             st.markdown(f'<a href="https://api.whatsapp.com/send?phone=55{telefone_destino}&text={texto_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;">💬 Disparar Zap</button></a>', unsafe_allow_html=True)
         
         except Exception as e:
