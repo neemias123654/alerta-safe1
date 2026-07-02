@@ -2,3 +2,7 @@ streamlit-cookies-controller
 streamlit
 pandas
 xlsxwriter
+streamlit
+pandas
+xlsxwriter
+openpyxl
