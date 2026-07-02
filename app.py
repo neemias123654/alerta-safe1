@@ -6,18 +6,21 @@ import pandas as pd
 import io
 import traceback
 import re
+import hashlib
 
 # --- CONFIGURAÇÕES MASTER DO DESENVOLVEDOR (PROTEÇÃO LOCAL/NUVEM) ---
 try:
-    # Tenta carregar do painel da Nuvem (Streamlit Cloud)
     EMAIL_DEV = st.secrets["EMAIL_DEV"]
     SENHA_DESENVOLVEDOR = st.secrets["SENHA_DESENVOLVEDOR"]
 except Exception:
-    # Se estiver rodando localmente no PC, usa os padrões automáticos
     EMAIL_DEV = "neemias123654@gmail.com"
     SENHA_DESENVOLVEDOR = "DEV_MASTER_2026"
 
-# --- CONFIGURAÇÃO DO BANCO DE DADOS ATUALIZADA ---
+# --- AUXILIAR DE SEGURANÇA: CRIPTOGRAFIA SHA-256 ---
+def criptografar_senha(senha_poura):
+    return hashlib.sha256(senha_poura.encode('utf-8')).hexdigest()
+
+# --- CONFIGURAÇÃO DO BANCO DE DADOS ATUALIZADA COM ÍNDICES ---
 def init_db():
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
@@ -78,24 +81,12 @@ def init_db():
         )
     ''')
     
-    # Migrações de segurança e consistência para o banco de dados
-    try: cursor.execute("ALTER TABLE funcionarios ADD COLUMN area_id INTEGER")
-    except sqlite3.OperationalError: pass
-
-    try: cursor.execute("ALTER TABLE usuarios ADD COLUMN permissao_uso INTEGER DEFAULT 0")
-    except sqlite3.OperationalError: pass
-
-    try: cursor.execute("ALTER TABLE usuarios ADD COLUMN nome_empresa TEXT")
-    except sqlite3.OperationalError: pass
-
-    try: cursor.execute("ALTER TABLE usuarios ADD COLUMN acessos_count INTEGER DEFAULT 0")
-    except sqlite3.OperationalError: pass
-
-    try: cursor.execute("ALTER TABLE logs_erros ADD COLUMN mensagem_erro TEXT")
-    except sqlite3.OperationalError: pass
-
-    try: cursor.execute("ALTER TABLE logs_erros ADD COLUMN status TEXT DEFAULT 'Pendente'")
-    except sqlite3.OperationalError: pass
+    # Otimização de Performance: Criação de Índices de Busca
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_func_email ON funcionarios(usuario_email);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_func_area ON funcionarios(area_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cursos_func ON outros_cursos(funcionario_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cursos_email ON outros_cursos(usuario_email);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_areas_email ON areas_empresa(usuario_email);")
 
     conn.commit()
     conn.close()
@@ -145,10 +136,11 @@ def dev_cadastrar_cliente(email, senha, cpf, telefone, nome_empresa):
     try:
         conn = sqlite3.connect('alerta_safe.db')
         cursor = conn.cursor()
+        senha_hash = criptografar_senha(senha)
         cursor.execute("""
             INSERT INTO usuarios (email, senha, cpf, telefone, status_pagamento, permissao_uso, nome_empresa, acessos_count) 
             VALUES (?, ?, ?, ?, 1, 0, ?, 0)
-        """, (email, senha, cpf, telefone, nome_empresa))
+        """, (email, senha_hash, cpf, telefone, nome_empresa))
         conn.commit()
         conn.close()
         return True
@@ -158,7 +150,8 @@ def dev_cadastrar_cliente(email, senha, cpf, telefone, nome_empresa):
 def verificar_login(email, senha):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT email, telefone, status_pagamento, permissao_uso, nome_empresa FROM usuarios WHERE email = ? AND senha = ?", (email, senha))
+    senha_hash = criptografar_senha(senha)
+    cursor.execute("SELECT email, telefone, status_pagamento, permissao_uso, nome_empresa FROM usuarios WHERE email = ? AND senha = ?", (email, senha_hash))
     usuario = cursor.fetchone()
     conn.close()
     return usuario
@@ -319,10 +312,14 @@ def calcular_status(data_str):
     else:
         return "🟢 EM DIA"
 
-# --- INTERFACE MODAL DE EDIÇÃO INTEGRADA ---
+# --- INTERFACE MODAL DE EDIÇÃO ISOLADA POR ESTADO ---
 @st.dialog("✏️ Opções de Gerenciamento e Edição")
-def modal_editar_funcionario(trabalhador, email_usuario_logado, dicionario_areas):
-    f_id = trabalhador[0]
+def modal_editar_funcionario_isolado(f_id, email_usuario_logado, dicionario_areas):
+    trabalhador = buscar_funcionario_por_id(f_id, email_usuario_logado)
+    if not trabalhador:
+        st.error("Erro ao carregar os dados deste colaborador.")
+        return
+        
     status_curso = calcular_status(trabalhador[3])
     status_aso = calcular_status(trabalhador[4])
     
@@ -356,7 +353,7 @@ def modal_editar_funcionario(trabalhador, email_usuario_logado, dicionario_areas
         edit_aso = st.date_input("Vencimento do Exame Médico ASO:", value=data_aso_atual)
     
     st.markdown("---")
-    st.markdown("### 📜 Certificados Adicionais (NR-10, NR-35, etc.)")
+    st.markdown("### 📜 Certificados Adicionais")
     
     certificados_atuais = listar_outros_cursos_por_funcionario(f_id, email_usuario_logado)
     if certificados_atuais:
@@ -368,7 +365,7 @@ def modal_editar_funcionario(trabalhador, email_usuario_logado, dicionario_areas
                 deletar_outro_curso(c_id, email_usuario_logado)
                 st.rerun()
     else:
-        st.caption("Nenhum certificado adicional anexado a este colaborador.")
+        st.caption("Nenhum certificado adicional anexo.")
         
     st.markdown("**Adicionar Novo Certificado Extra:**")
     col_nc1, col_nc2 = st.columns([0.6, 0.4])
@@ -386,24 +383,26 @@ def modal_editar_funcionario(trabalhador, email_usuario_logado, dicionario_areas
     st.markdown("---")
     col_btn_salvar, col_btn_deletar = st.columns(2)
     with col_btn_salvar:
-        if st.button("💾 Salvar Ficha Cadastral", type="primary", use_container_width=True):
+        if st.button("💾 Salvar Ficha", type="primary", use_container_width=True):
             atualizar_funcionario(f_id, edit_nome, edit_cargo, str(edit_curso), str(edit_aso), email_usuario_logado, id_area_editado)
             st.success("Alterações salvas!")
             st.rerun()
     with col_btn_deletar:
         if st.button("🚨 REMOVER COLABORADOR", type="secondary", use_container_width=True):
             deletar_funcionario(f_id, email_usuario_logado)
+            st.session_state.id_editando = None
             st.rerun()
 
 # --- CONFIGURAÇÃO INICIAL DA PÁGINA ---
 st.set_page_config(page_title="AlertaSafe Enterprise", layout="wide", page_icon="🛡️")
 init_db()
 
-# --- SISTEMA DE LOGIN VIA QUERY PARAMS ---
+# Gerenciador de Estados de Sessão
 if "logado" not in st.session_state: st.session_state.logado = False
 if "dados_usuario" not in st.session_state: st.session_state.dados_usuario = None
 if "bloqueio_tipo" not in st.session_state: st.session_state.bloqueio_tipo = None
 if "acesso_computado" not in st.session_state: st.session_state.acesso_computado = False
+if "id_editando" not in st.session_state: st.session_state.id_editando = None
 
 url_user = st.query_params.get("user_session", None)
 
@@ -475,8 +474,8 @@ elif not st.session_state.logado:
 else:
     tipo_usuario = st.session_state.dados_usuario['tipo']
     
-    col_tit, col_sair = st.columns([0.85, 0.15])
-    with col_tit:
+    col_generico_t, col_sair = st.columns([0.85, 0.15])
+    with col_generico_t:
         if tipo_usuario == "dev":
             st.title("🛠️ CENTRAL MATRIX - Painel do Desenvolvedor")
         else:
@@ -488,6 +487,7 @@ else:
             st.session_state.logado = False
             st.session_state.dados_usuario = None
             st.session_state.acesso_computado = False
+            st.session_state.id_editando = None
             st.query_params.clear()
             st.rerun()
             
@@ -511,11 +511,11 @@ else:
                     if c_nome_empresa and c_email and c_senha and c_cpf and c_tel:
                         if len(c_tel) >= 10:
                             if dev_cadastrar_cliente(c_email, c_senha, c_cpf, c_tel, c_nome_empresa):
-                                st.success(f"Empresa '{c_nome_empresa}' cadastrada com sucesso!")
+                                st.success(f"Empresa '{c_nome_empresa}' cadastrada!")
                                 st.rerun()
                             else: st.error("Erro: Este e-mail já existe no banco.")
                         else: st.error("❌ Formato de telefone inválido.")
-                    else: st.error("Preencha todos os campos obrigatórios.")
+                    else: st.error("Preencha todos os campos.")
                         
         with aba_gerenciar_licencas:
             st.subheader("🏢 Status de Licenciamento Global")
@@ -524,7 +524,7 @@ else:
                 st.info("Nenhum cliente ativo encontrado.")
             else:
                 df_usuarios = pd.DataFrame(lista_users, columns=["email", "cpf", "telefone", "status_pagamento", "permissao_uso", "nome_empresa", "acessos_count"])
-                df_usuarios["nome_empresa"] = df_usuarios["nome_empresa"].fillna("Sem Nome Definido").str.strip()
+                df_usuarios["nome_empresa"] = df_usuarios["nome_empresa"].fillna("Sem Nome").str.strip()
                 empresas_unicas = sorted(df_usuarios["nome_empresa"].unique())
                 
                 for nome_emp in empresas_unicas:
@@ -537,7 +537,7 @@ else:
                                 "CNPJ/CPF": row["cpf"],
                                 "Telefone": row["telefone"],
                                 "Total de Acessos": f"📊 {row['acessos_count']} login(s)",
-                                "Status Financeiro": "🟢 PAGO / ATIVO" if row["status_pagamento"] == 1 else "🔴 INADIMPLENTE (Bloqueado)",
+                                "Status Financeiro": "🟢 PAGO / ATIVO" if row["status_pagamento"] == 1 else "🔴 INADIMPLENTE",
                                 "Acesso ao Aplicativo": "✅ LIBERADO" if row["permissao_uso"] == 1 else "⏳ AGUARDANDO LIBERAÇÃO"
                             })
                         st.table(dados_tabela)
@@ -563,8 +563,6 @@ else:
 
         with aba_bugs:
             st.subheader("🪲 Relatórios de Falhas em Tempo Real")
-            st.write("Erros fatais disparados pelos clientes em produção aparecem instantaneamente aqui:")
-            
             lista_bugs = listar_bugs_sistema()
             if not lista_bugs:
                 st.success("🎉 Nenhum bug ou falha crítica registrada! O sistema está estável.")
@@ -576,20 +574,18 @@ else:
                 for b_id, b_user, b_data, b_msg, b_trace, b_status in lista_bugs:
                     with st.container(border=True):
                         if b_status == "Resolvido":
-                            st.markdown(f"🟢 **[RESOLVIDO] Erro #{b_id}** — Tratado por `{b_user}` em `{b_data}`")
-                            st.success(f"✔️ **Mensagem do Erro Resolvido:** {b_msg}")
+                            st.markdown(f"🟢 **[RESOLVIDO] Erro #{b_id}** — por `{b_user}` em `{b_data}`")
+                            st.success(f"✔️ **Mensagem:** {b_msg}")
                         else:
-                            st.markdown(f"🔴 **[PENDENTE] Erro #{b_id}** — disparado por `{b_user}` em `{b_data}`")
-                            st.warning(f"⚠️ **Mensagem do Erro:** {b_msg}")
-                            
+                            st.markdown(f"🔴 **[PENDENTE] Erro #{b_id}** — por `{b_user}` em `{b_data}`")
+                            st.warning(f"⚠️ **Mensagem:** {b_msg}")
                             if st.button("✓ Marcar como Resolvido", key=f"resolv_{b_id}"):
                                 resolver_bug_sistema(b_id)
                                 st.rerun()
-                                
-                        with st.expander("🔍 Ver Rastro Técnico Completo (Traceback)"):
+                        with st.expander("🔍 Ver Rastro Técnico Completo"):
                             st.code(b_trace, language="python")
 
-    # --- ENGENHARIA VISUAL E PAINEL DO CLIENTE ---
+    # --- PAINEL DO CLIENTE ---
     else:
         email_usuario_logado = st.session_state.dados_usuario['email']
         
@@ -602,6 +598,10 @@ else:
                 "📥 Importar Planilha (Massa)", "🏗️ Criar/Editar Áreas da Empresa",
                 "📲 Central de Alertas Automatizados"
             ])
+
+            # Tratamento do Modal Isolado por Estado para Evitar Fechamento Precoce
+            if st.session_state.id_editando:
+                modal_editar_funcionario_isolado(st.session_state.id_editando, email_usuario_logado, dicionario_areas)
 
             def renderizar_grid_funcionarios(funcionarios_lista):
                 col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7 = st.columns([0.6, 1.8, 1.3, 1.3, 1.3, 2.5, 0.6])
@@ -618,15 +618,16 @@ else:
                     col4.write(f"{func['Venc. Curso Base']}\n\n{func['Status Curso']}")
                     col5.write(f"{func['Venc. ASO']}\n\n{func['Status ASO']}")
                     col6.write(func['Certificados Extras (Status)'])
+                    
+                    # Clicar altera o estado global e aciona o Rerun para abrir o modal de forma segura
                     if col7.button("✏️", key=f"btn_edit_{f_id}"):
-                        trabalhador_banco = buscar_funcionario_por_id(f_id, email_usuario_logado)
-                        modal_editar_funcionario(trabalhador_banco, email_usuario_logado, dicionario_areas)
+                        st.session_state.id_editando = f_id
+                        st.rerun()
 
             with aba_dash:
                 lista_funcionarios = listar_todos_funcionarios(email_usuario_logado)
                 todos_certificados_banco = listar_outros_cursos(email_usuario_logado)
                 
-                # --- SISTEMA DE PESQUISA E FILTROS AVANÇADOS ---
                 col_pesq1, col_pesq2 = st.columns([0.6, 0.4])
                 with col_pesq1:
                     termo_pesquisa = st.text_input("🔍 Pesquisar Colaborador:", placeholder="Digite o nome ou cargo...").strip().lower()
@@ -679,7 +680,6 @@ else:
                 col_m3.metric("⚠️ Exige Atenção (30 dias)", atencao, delta="Atenção" if atencao > 0 else "Estável", delta_color="off")
                 st.write("---")
 
-                # Aplicação prática cruzada dos filtros
                 funcionarios_filtrados = []
                 for f in funcionarios_processados:
                     passou_texto = not termo_pesquisa or (termo_pesquisa in f["Nome Completo"].lower() or termo_pesquisa in f["Cargo"].lower())
@@ -742,18 +742,29 @@ else:
                 arquivo_lote = st.file_uploader("Escolha o arquivo (.xlsx ou .csv):", type=["xlsx", "csv"])
                 
                 if arquivo_lote is not None:
-                    # Carrega usando openpyxl automaticamente nos bastidores
                     df_carregado = pd.read_excel(arquivo_lote) if arquivo_lote.name.endswith('.xlsx') else pd.read_csv(arquivo_lote)
                     st.dataframe(df_carregado, use_container_width=True)
                     if st.button("🔥 Confirmar Importação Lote", type="primary"):
-                        for _, row in df_carregado.iterrows():
+                        erros_importacao = []
+                        sucessos = 0
+                        
+                        for idx, row in df_carregado.iterrows():
                             if str(row["Nome Completo"]).strip() == "João da Silva": continue
                             try:
                                 val_curso = pd.to_datetime(row["Validade Curso (AAAA-MM-DD)"]).strftime("%Y-%m-%d")
                                 val_aso = pd.to_datetime(row["Validade ASO (AAAA-MM-DD)"]).strftime("%Y-%m-%d")
                                 adicionar_funcionario(str(row["Nome Completo"]), str(row["Cargo"]), val_curso, val_aso, email_usuario_logado, opcoes_lote_area[area_selecionada_lote])
-                            except Exception: pass
-                        st.success("Lote importado com sucesso!")
+                                sucessos += 1
+                            except Exception as err_lote:
+                                erros_importacao.append(f"Linha {idx + 2} ({row.get('Nome Completo', 'Sem Nome')}): Erro na formatação de datas.")
+                        
+                        if erros_importacao:
+                            st.warning(f"⚠️ Importação concluída parcial: {sucessos} adicionados com sucesso.")
+                            with st.expander("🔍 Ver Linhas Puladas / Erros de Data"):
+                                for erro_item in erros_importacao:
+                                    st.write(f"• {erro_item}")
+                        else:
+                            st.success(f"🎉 Todos os {sucessos} funcionários foram importados perfeitamente!")
                         st.rerun()
 
             with aba_config_areas:
@@ -788,4 +799,4 @@ else:
         except Exception as e:
             registrar_bug_sistema(email_usuario_logado, e)
             st.error("🛑 Ocorreu um erro interno de processamento.")
-            st.info("💡 Fique tranquilo! O erro técnico foi mapeado de forma automática e enviado diretamente para a mesa do Desenvolvedor para correção imediata.")
+            st.info("💡 O erro técnico foi mapeado de forma automática e enviado diretamente para a mesa do Desenvolvedor.")
