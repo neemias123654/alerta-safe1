@@ -24,7 +24,6 @@ def init_db():
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
     
-    # Tabela de Funcionários com suporte a status de aprovação de fila
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS funcionarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,8 +147,10 @@ def adicionar_funcionario_pendente(nome, cargo, validade_curso, validade_aso, us
         INSERT INTO funcionarios (nome, cargo, validade_curso, validade_aso, usuario_email, area_id, status_aprovacao) 
         VALUES (?, ?, ?, ?, ?, NULL, 'Pendente')
     """, (nome, cargo, validade_curso, validade_aso, usuario_email))
+    ultimo_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    return ultimo_id
 
 def listar_funcionarios_por_status(usuario_email, status='Aprovado'):
     conn = sqlite3.connect('alerta_safe.db')
@@ -166,6 +167,7 @@ def alterar_status_aprovacao_funcionario(id_func, novo_status, usuario_email):
         cursor.execute("UPDATE funcionarios SET status_aprovacao = 'Aprovado' WHERE id = ? AND usuario_email = ?", (id_func, usuario_email))
     else:
         cursor.execute("DELETE FROM funcionarios WHERE id = ? AND usuario_email = ?", (id_func, usuario_email))
+        cursor.execute("DELETE FROM outros_cursos WHERE funcionario_id = ? AND usuario_email = ?", (id_func, usuario_email))
     conn.commit()
     conn.close()
 
@@ -255,7 +257,7 @@ def listar_outros_cursos(usuario_email):
         SELECT oc.id, f.nome, oc.nome_curso, oc.validade, oc.funcionario_id 
         FROM outros_cursos oc 
         JOIN funcionarios f ON oc.funcionario_id = f.id 
-        WHERE oc.usuario_email = ? AND f.status_aprovacao = 'Aprovado'
+        WHERE oc.usuario_email = ?
     ''', (usuario_email,))
     resultados = cursor.fetchall()
     conn.close()
@@ -351,6 +353,7 @@ init_db()
 if "logado" not in st.session_state: st.session_state.logado = False
 if "dados_usuario" not in st.session_state: st.session_state.dados_usuario = None
 if "id_editando" not in st.session_state: st.session_state.id_editando = None
+if "cursos_temporarios_autocadastro" not in st.session_state: st.session_state.cursos_temporarios_autocadastro = []
 
 params = st.query_params
 
@@ -368,10 +371,49 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
         val_curso_worker = col_w1.date_input("Validade do seu Curso Técnico Base:")
         val_aso_worker = col_w2.date_input("Validade do seu Exame Médico ASO:")
         
+        # 🔥 NOVA SEÇÃO: ADICIONAR OUTROS CURSOS / NRs DIRETAMENTE NO AUTO-CADASTRO
+        st.markdown("---")
+        st.markdown("### 📜 Certificados Adicionais / NRs (Opcional)")
+        st.caption("Adicione abaixo outros treinamentos exigidos para sua função (Ex: NR-35, NR-10, Trabalho em Altura, etc.):")
+        
+        col_add_c1, col_add_c2 = st.columns([0.6, 0.4])
+        nome_curso_temp = col_add_c1.text_input("Nome do Curso Adicional (Ex: NR-35):")
+        validade_curso_temp = col_add_c2.date_input("Validade do Certificado Extra:", key="val_temp_autocad")
+        
+        if st.button("➕ Incluir Certificado à Lista", use_container_width=True):
+            if nome_curso_temp.strip():
+                st.session_state.cursos_temporarios_autocadastro.append({
+                    "nome": nome_curso_temp.strip().upper(),
+                    "validade": str(validade_curso_temp)
+                })
+                st.rerun()
+            else:
+                st.warning("Insira o nome do curso para poder adicioná-lo.")
+                
+        # Exibe os cursos adicionados temporariamente na tela do trabalhador
+        if st.session_state.cursos_temporarios_autocadastro:
+            st.markdown("**Cursos incluídos no seu envio:**")
+            for idx, c_temp in enumerate(st.session_state.cursos_temporarios_autocadastro):
+                col_i1, col_i2, col_i3 = st.columns([0.5, 0.3, 0.2])
+                col_i1.write(f"• **{c_temp['nome']}**")
+                col_i2.write(f"`{c_temp['validade']}`")
+                if col_i3.button("🗑️ Remover", key=f"del_temp_{idx}"):
+                    st.session_state.cursos_temporarios_autocadastro.pop(idx)
+                    st.rerun()
+                    
+        st.markdown("---")
         if st.button("🚀 Enviar Dados para Homologação", type="primary", use_container_width=True):
             if nome_worker and cargo_worker:
-                adicionar_funcionario_pendente(nome_worker, cargo_worker, str(val_curso_worker), str(val_aso_worker), empresa_link)
-                st.success("🎉 Seus dados foram enviados com sucesso! O RH fará a revisão técnica do seu cadastro.")
+                # Salva o funcionário principal com status 'Pendente'
+                id_novo_func = adicionar_funcionario_pendente(nome_worker, cargo_worker, str(val_curso_worker), str(val_aso_worker), empresa_link)
+                
+                # Descarrega os cursos extras salvos na sessão diretamente no banco atrelados a esse ID
+                for c_salvar in st.session_state.cursos_temporarios_autocadastro:
+                    adicionar_outro_curso(id_novo_func, c_salvar['nome'], c_salvar['validade'], empresa_link)
+                
+                # Limpa a lista temporária
+                st.session_state.cursos_temporarios_autocadastro = []
+                st.success("🎉 Seus dados e certificados foram enviados com sucesso! O setor de segurança/RH fará a revisão técnica.")
                 st.stop()
             else: st.error("Por favor, preencha o seu nome e cargo antes de enviar.")
     st.stop()
@@ -381,7 +423,6 @@ url_user = params.get("user_session", None)
 if url_user and not st.session_state.logado:
     user_b = buscar_usuario_por_email(url_user)
     if user_b:
-        # CORREÇÃO DE SEGURANÇA: Se for o desenvolvedor master acessando via URL, ignora travas de inadimplência
         if user_b[0] == EMAIL_DEV or (user_b[2] == 1 and user_b[3] == 1):
             st.session_state.logado = True
             st.session_state.dados_usuario = {"email": user_b[0], "telefone": user_b[1], "tipo": "dev" if user_b[0] == EMAIL_DEV else "cliente", "nome_empresa": user_b[4]}
@@ -412,7 +453,6 @@ else:
     email_usuario_logado = st.session_state.dados_usuario['email']
     tipo_usuario = st.session_state.dados_usuario.get('tipo', 'cliente')
 
-    # Cabeçalho Superior Geral
     col_t1, col_sair = st.columns([0.85, 0.15])
     with col_t1: st.markdown(f"<h2 style='margin:0;'>🛡️ Painel AlertaSafe — {st.session_state.dados_usuario.get('nome_empresa', email_usuario_logado)}</h2>", unsafe_allow_html=True)
     with col_sair:
@@ -431,7 +471,6 @@ else:
         with aba_clientes:
             st.subheader("Controle de Licenças e Permissões")
             
-            # --- FORMULÁRIO DE CADASTRO DE NOVOS CLIENTES ---
             with st.expander("➕ Cadastrar Novo Cliente / Empresa", expanded=False):
                 with st.form("form_novo_usuario_dev", clear_on_submit=True):
                     col_u1, col_u2 = st.columns(2)
@@ -477,7 +516,6 @@ else:
                 df_usuarios['permissao_uso'] = df_usuarios['permissao_uso'].apply(lambda x: "🟢 Liberado" if x == 1 else "🔴 BLOQUEADO")
                 st.dataframe(df_usuarios, use_container_width=True)
                 
-                # --- CENTRAL DE BLOQUEIO / ALTERAÇÃO DE STATUS DE PAGAMENTO ---
                 st.markdown("#### ⚡ Ações Rápidas de Cobrança e Bloqueio")
                 col_sel_emp, col_btn_ok, col_btn_block = st.columns([0.5, 0.25, 0.25])
                 
@@ -592,11 +630,7 @@ else:
         with aba_fila_trabalhador:
             st.subheader("📥 Central de Homologação de Admissão Remota")
             
-            # 🔥 CORREÇÃO CRÍTICA: Captura dinamicamente a URL real em que o app está rodando (Local ou Cloud)
             try:
-                from streamlit.web.server.server import Server
-                import asyncio
-                # Tenta puxar as configurações de cabeçalhos ativos do navegador
                 host_url = st.context.headers.get("Host", "localhost:8501")
                 protocolo = "https" if "streamlit.app" in host_url else "http"
                 host_atual = f"{protocolo}://{host_url}"
@@ -608,6 +642,14 @@ else:
             st.code(link_autocadastro, language="markdown")
             
             fila_pendentes = listar_funcionarios_por_status(email_usuario_logado, 'Pendente')
+            todos_certificados = listar_outros_cursos(email_usuario_logado)
+            
+            mapa_certificados = {}
+            for cert in todos_certificados:
+                func_id = cert[4]
+                if func_id not in mapa_certificados: mapa_certificados[func_id] = []
+                mapa_certificados[func_id].append(f"{cert[2]} (Val: {cert[3]})")
+
             if not fila_pendentes: st.success("🎉 Nenhuma ficha pendente de revisão.")
             else:
                 for p_id, p_nome, p_cargo, p_vcurso, p_vaso, _ in fila_pendentes:
@@ -616,6 +658,14 @@ else:
                         with col_p1:
                             st.markdown(f"👤 **Nome:** {p_nome} | **Cargo:** {p_cargo}")
                             st.markdown(f"📅 *Vencimento Curso Base:* `{p_vcurso}` | *Vencimento ASO:* `{p_vaso}`")
+                            
+                            # Exibe os cursos adicionais na visualização do RH/Cliente antes de aprovar
+                            cursos_extras_func = mapa_certificados.get(p_id, [])
+                            if cursos_extras_func:
+                                st.markdown(f"📜 **Certificados Extras Vinculados:** {', '.join(cursos_extras_func)}")
+                            else:
+                                st.caption("Nenhum certificado adicional anexo.")
+                                
                         with col_p2:
                             if st.button("✅ Aprovar Entrada", key=f"aprov_{p_id}", use_container_width=True):
                                 alterar_status_aprovacao_funcionario(p_id, 'Aprovado', email_usuario_logado)
