@@ -366,56 +366,58 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
     with st.container(border=True):
         nome_worker = st.text_input("Seu Nome Completo:")
         cargo_worker = st.text_input("Cargo / Função Ocupacional:")
-        st.caption("Insira as validades encontradas nos seus documentos impressos:")
+        
+        st.markdown("<br><b>Insira as validades encontradas nos seus documentos impressos:</b>", unsafe_allow_html=True)
         col_w1, col_w2 = st.columns(2)
         val_curso_worker = col_w1.date_input("Validade do seu Curso Técnico Base:")
         val_aso_worker = col_w2.date_input("Validade do seu Exame Médico ASO:")
         
-        # 🔥 NOVA SEÇÃO: ADICIONAR OUTROS CURSOS / NRs DIRETAMENTE NO AUTO-CADASTRO
+        # --- SEÇÃO COMPLETAMENTE INTERATIVA DE CURSOS EXTRAS ---
         st.markdown("---")
-        st.markdown("### 📜 Certificados Adicionais / NRs (Opcional)")
-        st.caption("Adicione abaixo outros treinamentos exigidos para sua função (Ex: NR-35, NR-10, Trabalho em Altura, etc.):")
+        st.markdown("### 📋 Seus Certificados Extras & NRs")
+        st.caption("Adicione um por um abaixo. Os certificados salvos aparecerão em sequência.")
         
-        col_add_c1, col_add_c2 = st.columns([0.6, 0.4])
-        nome_curso_temp = col_add_c1.text_input("Nome do Curso Adicional (Ex: NR-35):")
-        validade_curso_temp = col_add_c2.date_input("Validade do Certificado Extra:", key="val_temp_autocad")
-        
-        if st.button("➕ Incluir Certificado à Lista", use_container_width=True):
-            if nome_curso_temp.strip():
-                st.session_state.cursos_temporarios_autocadastro.append({
-                    "nome": nome_curso_temp.strip().upper(),
-                    "validade": str(validade_curso_temp)
-                })
-                st.rerun()
-            else:
-                st.warning("Insira o nome do curso para poder adicioná-lo.")
-                
-        # Exibe os cursos adicionados temporariamente na tela do trabalhador
+        # Container dinâmico para listar os cursos já adicionados em cartões sequenciais
         if st.session_state.cursos_temporarios_autocadastro:
-            st.markdown("**Cursos incluídos no seu envio:**")
             for idx, c_temp in enumerate(st.session_state.cursos_temporarios_autocadastro):
-                col_i1, col_i2, col_i3 = st.columns([0.5, 0.3, 0.2])
-                col_i1.write(f"• **{c_temp['nome']}**")
-                col_i2.write(f"`{c_temp['validade']}`")
-                if col_i3.button("🗑️ Remover", key=f"del_temp_{idx}"):
-                    st.session_state.cursos_temporarios_autocadastro.pop(idx)
+                with st.container(border=True):
+                    col_i1, col_i2, col_i3 = st.columns([0.5, 0.3, 0.2])
+                    col_i1.markdown(f"🏅 **Curso:** `{c_temp['nome']}`")
+                    col_i2.markdown(f"📅 **Validade:** `{c_temp['validade']}`")
+                    if col_i3.button("🗑️ Remover", key=f"del_temp_{idx}", use_container_width=True):
+                        st.session_state.cursos_temporarios_autocadastro.pop(idx)
+                        st.rerun()
+            st.markdown("<p style='color: #10B981; font-weight: bold;'>⬇️ Adicione o próximo certificado na sequência abaixo:</p>", unsafe_allow_html=True)
+        
+        # Campos de entrada de dados (Limpam automaticamente após o clique devido ao st.rerun sem valor estático fixo)
+        with st.container(border=True):
+            col_add_c1, col_add_c2 = st.columns([0.6, 0.4])
+            nome_curso_temp = col_add_c1.text_input("Nome do Curso Extra (Ex: NR-35, NR-10):", key="input_nome_extra_novo")
+            validade_curso_temp = col_add_c2.date_input("Validade deste Certificado:", key="input_val_extra_novo")
+            
+            if st.button("➕ Adicionar Certificado à Sequência", type="secondary", use_container_width=True):
+                if nome_curso_temp.strip():
+                    st.session_state.cursos_temporarios_autocadastro.append({
+                        "nome": nome_curso_temp.strip().upper(),
+                        "validade": str(validade_curso_temp)
+                    })
                     st.rerun()
+                else:
+                    st.warning("⚠️ Digite o nome do certificado antes de clicar em adicionar.")
                     
         st.markdown("---")
-        if st.button("🚀 Enviar Dados para Homologação", type="primary", use_container_width=True):
+        if st.button("🚀 Finalizar e Enviar Ficha Completa", type="primary", use_container_width=True):
             if nome_worker and cargo_worker:
-                # Salva o funcionário principal com status 'Pendente'
                 id_novo_func = adicionar_funcionario_pendente(nome_worker, cargo_worker, str(val_curso_worker), str(val_aso_worker), empresa_link)
                 
-                # Descarrega os cursos extras salvos na sessão diretamente no banco atrelados a esse ID
                 for c_salvar in st.session_state.cursos_temporarios_autocadastro:
                     adicionar_outro_curso(id_novo_func, c_salvar['nome'], c_salvar['validade'], empresa_link)
                 
-                # Limpa a lista temporária
                 st.session_state.cursos_temporarios_autocadastro = []
-                st.success("🎉 Seus dados e certificados foram enviados com sucesso! O setor de segurança/RH fará a revisão técnica.")
+                st.success("🎉 Perfeito! Seus dados pessoais e toda a sequência de cursos extras foram enviados para análise do RH.")
                 st.stop()
-            else: st.error("Por favor, preencha o seu nome e cargo antes de enviar.")
+            else: 
+                st.error("Por favor, preencha o seu Nome Completo e Cargo na parte superior da página antes de enviar.")
     st.stop()
 
 # --- FLUXO DE LOGIN ---
@@ -498,7 +500,7 @@ else:
                                 st.success(f"🎉 Empresa '{u_empresa}' cadastrada com sucesso!")
                                 st.rerun()
                             except sqlite3.IntegrityError:
-                                st.error("❌ Erro: Este e-mail já está cadastrado no banco de dados.")
+                                r = st.error("❌ Erro: Este e-mail já está cadastrado no banco de dados.")
                             except Exception as e:
                                 st.error(f"Erro operacional: {e}")
                         else:
@@ -659,7 +661,6 @@ else:
                             st.markdown(f"👤 **Nome:** {p_nome} | **Cargo:** {p_cargo}")
                             st.markdown(f"📅 *Vencimento Curso Base:* `{p_vcurso}` | *Vencimento ASO:* `{p_vaso}`")
                             
-                            # Exibe os cursos adicionais na visualização do RH/Cliente antes de aprovar
                             cursos_extras_func = mapa_certificados.get(p_id, [])
                             if cursos_extras_func:
                                 st.markdown(f"📜 **Certificados Extras Vinculados:** {', '.join(cursos_extras_func)}")
