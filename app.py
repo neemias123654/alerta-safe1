@@ -380,9 +380,11 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
 url_user = params.get("user_session", None)
 if url_user and not st.session_state.logado:
     user_b = buscar_usuario_por_email(url_user)
-    if user_b and user_b[2] == 1 and user_b[3] == 1:
-        st.session_state.logado = True
-        st.session_state.dados_usuario = {"email": user_b[0], "telefone": user_b[1], "tipo": "dev" if user_b[0] == EMAIL_DEV else "cliente", "nome_empresa": user_b[4]}
+    if user_b:
+        # CORREÇÃO DE SEGURANÇA: Se for o desenvolvedor master acessando via URL, ignora travas de inadimplência
+        if user_b[0] == EMAIL_DEV or (user_b[2] == 1 and user_b[3] == 1):
+            st.session_state.logado = True
+            st.session_state.dados_usuario = {"email": user_b[0], "telefone": user_b[1], "tipo": "dev" if user_b[0] == EMAIL_DEV else "cliente", "nome_empresa": user_b[4]}
 
 if not st.session_state.logado:
     st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
@@ -398,7 +400,7 @@ if not st.session_state.logado:
                 if botao_entrar:
                     usuario = verificar_login(email_login, senha_login)
                     if usuario:
-                        if usuario[2] == 0 or usuario[3] == 0:
+                        if usuario[0] != EMAIL_DEV and (usuario[2] == 0 or usuario[3] == 0):
                             st.error("❌ Acesso Bloqueado. Sua conta encontra-se suspensa por falta de pagamento. Contacte o administrador.")
                         else:
                             st.session_state.logado = True
@@ -471,16 +473,14 @@ else:
             conn.close()
             
             if not df_usuarios.empty:
-                # Alteração visual para facilitar o entendimento do status de bloqueio
                 df_usuarios['status_pagamento'] = df_usuarios['status_pagamento'].apply(lambda x: "🟢 Pago" if x == 1 else "🔴 Inadimplente")
                 df_usuarios['permissao_uso'] = df_usuarios['permissao_uso'].apply(lambda x: "🟢 Liberado" if x == 1 else "🔴 BLOQUEADO")
                 st.dataframe(df_usuarios, use_container_width=True)
                 
-                # --- 🔥 CENTRAL DE BLOQUEIO / ALTERAÇÃO DE STATUS DE PAGAMENTO ---
+                # --- CENTRAL DE BLOQUEIO / ALTERAÇÃO DE STATUS DE PAGAMENTO ---
                 st.markdown("#### ⚡ Ações Rápidas de Cobrança e Bloqueio")
                 col_sel_emp, col_btn_ok, col_btn_block = st.columns([0.5, 0.25, 0.25])
                 
-                # Mapeamento para caixa de seleção
                 opcoes_empresas = {f"{row['nome_empresa']} ({row['email']})": row['id'] for _, row in df_usuarios.iterrows()}
                 empresa_selecionada = col_sel_emp.selectbox("Selecione a empresa para alterar o acesso:", list(opcoes_empresas.keys()))
                 
@@ -591,7 +591,18 @@ else:
 
         with aba_fila_trabalhador:
             st.subheader("📥 Central de Homologação de Admissão Remota")
-            host_atual = "https://seu-app.streamlit.app"
+            
+            # 🔥 CORREÇÃO CRÍTICA: Captura dinamicamente a URL real em que o app está rodando (Local ou Cloud)
+            try:
+                from streamlit.web.server.server import Server
+                import asyncio
+                # Tenta puxar as configurações de cabeçalhos ativos do navegador
+                host_url = st.context.headers.get("Host", "localhost:8501")
+                protocolo = "https" if "streamlit.app" in host_url else "http"
+                host_atual = f"{protocolo}://{host_url}"
+            except Exception:
+                host_atual = "http://localhost:8501"
+
             link_autocadastro = f"{host_atual}/?modo=auto_cadastro&empresa={urllib.parse.quote(email_usuario_logado)}"
             st.info("💡 **Link de Recrutamento:** Copie o endereço abaixo e envie pelo WhatsApp para os novos colaboradores.")
             st.code(link_autocadastro, language="markdown")
