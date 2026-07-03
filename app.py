@@ -354,6 +354,7 @@ if "logado" not in st.session_state: st.session_state.logado = False
 if "dados_usuario" not in st.session_state: st.session_state.dados_usuario = None
 if "id_editando" not in st.session_state: st.session_state.id_editando = None
 if "cursos_temporarios_autocadastro" not in st.session_state: st.session_state.cursos_temporarios_autocadastro = []
+if "input_nome_extra_novo" not in st.session_state: st.session_state.input_nome_extra_novo = ""
 
 params = st.query_params
 
@@ -389,10 +390,14 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
                         st.rerun()
             st.markdown("<p style='color: #10B981; font-weight: bold;'>⬇️ Adicione o próximo certificado na sequência abaixo:</p>", unsafe_allow_html=True)
         
-        # Campos de entrada de dados (Limpam automaticamente após o clique devido ao st.rerun sem valor estático fixo)
+        # Campos de entrada de dados controlados por estado estável
         with st.container(border=True):
             col_add_c1, col_add_c2 = st.columns([0.6, 0.4])
-            nome_curso_temp = col_add_c1.text_input("Nome do Curso Extra (Ex: NR-35, NR-10):", key="input_nome_extra_novo")
+            
+            nome_curso_temp = col_add_c1.text_input(
+                "Nome do Curso Extra (Ex: NR-35, NR-10):", 
+                key="input_nome_extra_novo"
+            )
             validade_curso_temp = col_add_c2.date_input("Validade deste Certificado:", key="input_val_extra_novo")
             
             if st.button("➕ Adicionar Certificado à Sequência", type="secondary", use_container_width=True):
@@ -401,6 +406,8 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
                         "nome": nome_curso_temp.strip().upper(),
                         "validade": str(validade_curso_temp)
                     })
+                    # 💡 MODIFICAÇÃO ATUAL: Limpa a barra excluindo a string do estado interno antes de remontar a tela
+                    st.session_state.input_nome_extra_novo = ""
                     st.rerun()
                 else:
                     st.warning("⚠️ Digite o nome do certificado antes de clicar em adicionar.")
@@ -500,7 +507,7 @@ else:
                                 st.success(f"🎉 Empresa '{u_empresa}' cadastrada com sucesso!")
                                 st.rerun()
                             except sqlite3.IntegrityError:
-                                r = st.error("❌ Erro: Este e-mail já está cadastrado no banco de dados.")
+                                st.error("❌ Erro: Este e-mail já está cadastrado no banco de dados.")
                             except Exception as e:
                                 st.error(f"Erro operacional: {e}")
                         else:
