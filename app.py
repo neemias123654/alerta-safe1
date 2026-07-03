@@ -8,7 +8,7 @@ import traceback
 import re
 import hashlib
 
-# --- CONFIGURAÇÕES MASTER DO DESENVOLVEDOR (PROTEÇÃO LOCAL/NUVEM) ---
+# --- CONFIGURAÇÕES MASTER DO DESENVOLVEDOR ---
 try:
     EMAIL_DEV = st.secrets["EMAIL_DEV"]
     SENHA_DESENVOLVEDOR = st.secrets["SENHA_DESENVOLVEDOR"]
@@ -16,15 +16,15 @@ except Exception:
     EMAIL_DEV = "neemias123654@gmail.com"
     SENHA_DESENVOLVEDOR = "DEV_MASTER_2026"
 
-# --- AUXILIAR DE SEGURANÇA: CRIPTOGRAFIA SHA-256 ---
-def criptografar_senha(senha_poura):
-    return hashlib.sha256(senha_poura.encode('utf-8')).hexdigest()
+def criptografar_senha(senha_pura):
+    return hashlib.sha256(senha_pura.encode('utf-8')).hexdigest()
 
-# --- CONFIGURAÇÃO DO BANCO DE DADOS ATUALIZADA COM ÍNDICES ---
+# --- ATUALIZAÇÃO E INICIALIZAÇÃO DO BANCO DE DADOS ---
 def init_db():
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
     
+    # Tabela de Funcionários com suporte a status de aprovação de fila
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS funcionarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,9 +33,15 @@ def init_db():
             validade_curso TEXT NOT NULL,
             validade_aso TEXT NOT NULL,
             usuario_email TEXT,
-            area_id INTEGER
+            area_id INTEGER,
+            status_aprovacao TEXT DEFAULT 'Aprovado'
         )
     ''')
+    
+    try:
+        cursor.execute("ALTER TABLE funcionarios ADD COLUMN status_aprovacao TEXT DEFAULT 'Aprovado'")
+    except sqlite3.OperationalError:
+        pass 
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS areas_empresa (
@@ -57,6 +63,15 @@ def init_db():
     ''')
     
     cursor.execute('''
+        CREATE TABLE IF NOT EXISTS matriz_requisitos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cargo TEXT NOT NULL,
+            curso_obrigatorio TEXT NOT NULL,
+            usuario_email TEXT
+        )
+    ''')
+    
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL UNIQUE,
@@ -64,7 +79,7 @@ def init_db():
             cpf TEXT NOT NULL,
             telefone TEXT NOT NULL,
             status_pagamento INTEGER DEFAULT 1,
-            permissao_uso INTEGER DEFAULT 0,
+            permissao_uso INTEGER DEFAULT 1,
             nome_empresa TEXT,
             acessos_count INTEGER DEFAULT 0
         )
@@ -81,73 +96,84 @@ def init_db():
         )
     ''')
     
-    # Otimização de Performance: Criação de Índices de Busca
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_func_email ON funcionarios(usuario_email);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_func_area ON funcionarios(area_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cursos_func ON outros_cursos(funcionario_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cursos_email ON outros_cursos(usuario_email);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_areas_email ON areas_empresa(usuario_email);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_matriz_email ON matriz_requisitos(usuario_email);")
 
     conn.commit()
     conn.close()
 
-# --- FUNÇÃO DE TELEMETRIA DE ERROS ---
-def registrar_bug_sistema(usuario_email, erro_exception):
-    try:
-        conn = sqlite3.connect('alerta_safe.db')
-        cursor = conn.cursor()
-        data_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        msg_erro = str(erro_exception)
-        rastro_completo = traceback.format_exc()
-        
-        cursor.execute("""
-            INSERT INTO logs_erros (usuario_email, data_hora, mensagem_erro, rastro_tecnico, status)
-            VALUES (?, ?, ?, ?, 'Pendente')
-        """, (usuario_email, data_atual, msg_erro, rastro_completo))
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
-
-def listar_bugs_sistema():
+# --- FUNÇÕES DE CONTROLE DE LICENÇA (DEV) ---
+def alterar_status_licenca(usuario_id, status_pagto, permissao):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT id, usuario_email, data_hora, mensagem_erro, rastro_tecnico, status FROM logs_erros ORDER BY id DESC")
-    erros = cursor.fetchall()
-    conn.close()
-    return erros
-
-def resolver_bug_sistema(id_bug):
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("UPDATE logs_erros SET status = 'Resolvido' WHERE id = ?", (id_bug,))
+    cursor.execute("""
+        UPDATE usuarios 
+        SET status_pagamento = ?, permissao_uso = ? 
+        WHERE id = ?
+    """, (status_pagto, permissao, usuario_id))
     conn.commit()
     conn.close()
 
-def limpar_historico_bugs():
+# --- FUNÇÕES DA MATRIZ DE REQUISITOS ---
+def adicionar_requisito_matriz(cargo, curso, usuario_email):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM logs_erros")
+    cursor.execute("INSERT INTO matriz_requisitos (cargo, curso_obrigatorio, usuario_email) VALUES (?, ?, ?)", 
+                   (cargo.strip().upper(), curso.strip(), usuario_email))
     conn.commit()
     conn.close()
 
-# --- FUNÇÕES DO DESENVOLVEDOR ---
-def dev_cadastrar_cliente(email, senha, cpf, telefone, nome_empresa):
-    try:
-        conn = sqlite3.connect('alerta_safe.db')
-        cursor = conn.cursor()
-        senha_hash = criptografar_senha(senha)
-        cursor.execute("""
-            INSERT INTO usuarios (email, senha, cpf, telefone, status_pagamento, permissao_uso, nome_empresa, acessos_count) 
-            VALUES (?, ?, ?, ?, 1, 0, ?, 0)
-        """, (email, senha_hash, cpf, telefone, nome_empresa))
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        return False
+def listar_requisitos_matriz(usuario_email):
+    conn = sqlite3.connect('alerta_safe.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, cargo, curso_obrigatorio FROM matriz_requisitos WHERE usuario_email = ?", (usuario_email,))
+    resultados = cursor.fetchall()
+    conn.close()
+    return resultados
 
+def delete_requisito_matriz(id_req, usuario_email):
+    conn = sqlite3.connect('alerta_safe.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM matriz_requisitos WHERE id = ? AND usuario_email = ?", (id_req, usuario_email))
+    conn.commit()
+    conn.close()
+
+# --- FUNÇÕES DE FILA DE AUTOCADASTRO ---
+def adicionar_funcionario_pendente(nome, cargo, validade_curso, validade_aso, usuario_email):
+    conn = sqlite3.connect('alerta_safe.db')
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO funcionarios (nome, cargo, validade_curso, validade_aso, usuario_email, area_id, status_aprovacao) 
+        VALUES (?, ?, ?, ?, ?, NULL, 'Pendente')
+    """, (nome, cargo, validade_curso, validade_aso, usuario_email))
+    conn.commit()
+    conn.close()
+
+def listar_funcionarios_por_status(usuario_email, status='Aprovado'):
+    conn = sqlite3.connect('alerta_safe.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nome, cargo, validade_curso, validade_aso, area_id FROM funcionarios WHERE usuario_email = ? AND status_aprovacao = ?", (usuario_email, status))
+    resultados = cursor.fetchall()
+    conn.close()
+    return resultados
+
+def alterar_status_aprovacao_funcionario(id_func, novo_status, usuario_email):
+    conn = sqlite3.connect('alerta_safe.db')
+    cursor = conn.cursor()
+    if novo_status == 'Aprovado':
+        cursor.execute("UPDATE funcionarios SET status_aprovacao = 'Aprovado' WHERE id = ? AND usuario_email = ?", (id_func, usuario_email))
+    else:
+        cursor.execute("DELETE FROM funcionarios WHERE id = ? AND usuario_email = ?", (id_func, usuario_email))
+    conn.commit()
+    conn.close()
+
+# --- AUTENTICAÇÃO ---
 def verificar_login(email, senha):
+    if email == EMAIL_DEV and senha == SENHA_DESENVOLVEDOR:
+        return (EMAIL_DEV, "0000000000", 1, 1, "DEVELOPER MASTER")
+        
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
     senha_hash = criptografar_senha(senha)
@@ -157,6 +183,8 @@ def verificar_login(email, senha):
     return usuario
 
 def buscar_usuario_por_email(email):
+    if email == EMAIL_DEV:
+        return (EMAIL_DEV, "0000000000", 1, 1, "DEVELOPER MASTER")
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
     cursor.execute("SELECT email, telefone, status_pagamento, permissao_uso, nome_empresa FROM usuarios WHERE email = ?", (email,))
@@ -164,36 +192,6 @@ def buscar_usuario_por_email(email):
     conn.close()
     return usuario
 
-def listar_todos_usuarios_do_sistema():
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT email, cpf, telefone, status_pagamento, permissao_uso, nome_empresa, acessos_count FROM usuarios ORDER BY email ASC")
-    usuarios = cursor.fetchall()
-    conn.close()
-    return usuarios
-
-def dev_alterar_pagamento(email_alvo, status):
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET status_pagamento = ? WHERE email = ?", (status, email_alvo))
-    conn.commit()
-    conn.close()
-
-def dev_alterar_permissao(email_alvo, permissao):
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET permissao_uso = ? WHERE email = ?", (permissao, email_alvo))
-    conn.commit()
-    conn.close()
-
-def computar_acesso(email):
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET acessos_count = acessos_count + 1 WHERE email = ?", (email,))
-    conn.commit()
-    conn.close()
-
-# --- FUNÇÕES DE ÁREAS CUSTOMIZADAS ---
 def adicionar_area(nome_area, usuario_email):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
@@ -209,19 +207,10 @@ def listar_areas(usuario_email):
     conn.close()
     return areas
 
-def deletar_area(id_area, usuario_email):
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM areas_empresa WHERE id = ? AND usuario_email = ?", (id_area, usuario_email))
-    cursor.execute("UPDATE funcionarios SET area_id = NULL WHERE area_id = ? AND usuario_email = ?", (id_area, usuario_email))
-    conn.commit()
-    conn.close()
-
-# --- FUNÇÕES DE FUNCIONÁRIOS ---
 def adicionar_funcionario(nome, cargo, validade_curso, validade_aso, usuario_email, area_id):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO funcionarios (nome, cargo, validade_curso, validade_aso, usuario_email, area_id) VALUES (?, ?, ?, ?, ?, ?)", 
+    cursor.execute("INSERT INTO funcionarios (nome, cargo, validade_curso, validade_aso, usuario_email, area_id, status_aprovacao) VALUES (?, ?, ?, ?, ?, ?, 'Aprovado')", 
                    (nome, cargo, validade_curso, validade_aso, usuario_email, area_id))
     ultimo_id = cursor.lastrowid
     conn.commit()
@@ -235,14 +224,6 @@ def buscar_funcionario_por_id(id_busca, usuario_email):
     resultado = cursor.fetchone()
     conn.close()
     return resultado
-
-def listar_todos_funcionarios(usuario_email):
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, nome, cargo, validade_curso, validade_aso, area_id FROM funcionarios WHERE usuario_email = ?", (usuario_email,))
-    resultados = cursor.fetchall()
-    conn.close()
-    return resultados
 
 def atualizar_funcionario(id_func, nome, cargo, validade_curso, validade_aso, usuario_email, area_id):
     conn = sqlite3.connect('alerta_safe.db')
@@ -260,12 +241,10 @@ def deletar_funcionario(id_func, usuario_email):
     conn.commit()
     conn.close()
 
-# --- FUNÇÕES DE OUTROS CURSOS EXTRA ---
 def adicionar_outro_curso(funcionario_id, nome_curso, validade, usuario_email):
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO outros_cursos (funcionario_id, nome_curso, validade, usuario_email) VALUES (?, ?, ?, ?)", 
-                   (funcionario_id, nome_curso, validade, usuario_email))
+    cursor.execute("INSERT INTO outros_cursos (funcionario_id, nome_curso, validade, usuario_email) VALUES (?, ?, ?, ?)", (funcionario_id, nome_curso, validade, usuario_email))
     conn.commit()
     conn.close()
 
@@ -276,7 +255,7 @@ def listar_outros_cursos(usuario_email):
         SELECT oc.id, f.nome, oc.nome_curso, oc.validade, oc.funcionario_id 
         FROM outros_cursos oc 
         JOIN funcionarios f ON oc.funcionario_id = f.id 
-        WHERE oc.usuario_email = ?
+        WHERE oc.usuario_email = ? AND f.status_aprovacao = 'Aprovado'
     ''', (usuario_email,))
     resultados = cursor.fetchall()
     conn.close()
@@ -299,46 +278,28 @@ def deletar_outro_curso(id_curso, usuario_email):
 
 def calcular_status(data_str):
     hoje = datetime.today().date()
-    try:
-        data_validade = datetime.strptime(data_str.strip(), "%Y-%m-%d").date()
-    except Exception:
-        return "🔴 VENCIDO"
+    try: data_validade = datetime.strptime(data_str.strip(), "%Y-%m-%d").date()
+    except: return "🔴 VENCIDO"
     prazo_alerta = hoje + timedelta(days=30)
-    
-    if data_validade < hoje:
-        return "🔴 VENCIDO"
-    elif hoje <= data_validade <= prazo_alerta:
-        return "🟡 ATENÇÃO"
-    else:
-        return "🟢 EM DIA"
+    if data_validade < hoje: return "🔴 VENCIDO"
+    elif hoje <= data_validade <= prazo_alerta: return "🟡 ATENÇÃO"
+    else: return "🟢 EM DIA"
 
-# --- INTERFACE MODAL DE EDIÇÃO ISOLADA POR ESTADO ---
-@st.dialog("✏️ Opções de Gerenciamento e Edição")
+# --- MODAL DE EDIÇÃO ISOLADA ---
+@st.dialog("✏️ Gerenciamento do Colaborador")
 def modal_editar_funcionario_isolado(f_id, email_usuario_logado, dicionario_areas):
     trabalhador = buscar_funcionario_por_id(f_id, email_usuario_logado)
     if not trabalhador:
-        st.error("Erro ao carregar os dados deste colaborador.")
+        st.error("Erro ao carregar dados do funcionário.")
         return
         
-    status_curso = calcular_status(trabalhador[3])
-    status_aso = calcular_status(trabalhador[4])
-    
-    if "🔴" in status_curso or "🔴" in status_aso:
-        st.error(f"❌ STATUS CRÍTICO: Documento Vencido Detectado.")
-    elif "🟡" in status_curso or "🟡" in status_aso:
-        st.warning(f"⚠️ STATUS ALERTA: Renovações pendentes em menos de 30 dias.")
-    else:
-        st.success(f"✅ STATUS REGULAR: Todos os prazos em dia.")
-
-    edit_nome = st.text_input("Nome do Colaborador:", value=trabalhador[1])
+    edit_nome = st.text_input("Nome Completo:", value=trabalhador[1])
     edit_cargo = st.text_input("Cargo Ocupacional:", value=trabalhador[2])
     
     opcoes_area_edit = {"Sem Área / Geral": None}
-    for id_a, nome_a in dicionario_areas.items():
-        opcoes_area_edit[nome_a] = id_a
-        
+    for id_a, nome_a in dicionario_areas.items(): opcoes_area_edit[nome_a] = id_a
     area_atual_nome = dicionario_areas.get(trabalhador[5], "Sem Área / Geral")
-    edit_area_nome = st.selectbox("Setor Operacional:", list(opcoes_area_edit.keys()), index=list(opcoes_area_edit.keys()).index(area_atual_nome))
+    edit_area_nome = st.selectbox("Setor:", list(opcoes_area_edit.keys()), index=list(opcoes_area_edit.keys()).index(area_atual_nome))
     id_area_editado = opcoes_area_edit[edit_area_nome]
     
     try: data_curso_atual = datetime.strptime(trabalhador[3], "%Y-%m-%d").date()
@@ -347,456 +308,350 @@ def modal_editar_funcionario_isolado(f_id, email_usuario_logado, dicionario_area
     except: data_aso_atual = datetime.today().date()
     
     col_ed1, col_ed2 = st.columns(2)
-    with col_ed1:
-        edit_curso = st.date_input("Vencimento do Curso Técnico Base:", value=data_curso_atual)
-    with col_ed2:
-        edit_aso = st.date_input("Vencimento do Exame Médico ASO:", value=data_aso_atual)
+    with col_ed1: edit_curso = st.date_input("Vencimento Curso Técnico:", value=data_curso_atual)
+    with col_ed2: edit_aso = st.date_input("Vencimento Exame ASO:", value=data_aso_atual)
     
     st.markdown("---")
-    st.markdown("### 📜 Certificados Adicionais")
-    
+    st.markdown("### 📜 Certificados Adicionais (NRs)")
     certificados_atuais = listar_outros_cursos_por_funcionario(f_id, email_usuario_logado)
     if certificados_atuais:
         for c_id, c_nome, c_val in certificados_atuais:
             col_c1, col_c2, col_c3 = st.columns([0.5, 0.3, 0.2])
             col_c1.write(f"• **{c_nome}**")
-            col_c2.write(f"Validade: `{c_val}`")
-            if col_c3.button("🗑️", key=f"del_cert_{c_id}"):
-                deletar_outro_curso(c_id, email_usuario_logado)
-                st.rerun()
-    else:
-        st.caption("Nenhum certificado adicional anexo.")
-        
-    st.markdown("**Adicionar Novo Certificado Extra:**")
+            col_c2.write(f"`{c_val}`")
+            if col_c3.button("🗑️", key=f"del_c_{c_id}"):
+                deletar_outro_curso(c_id, email_usuario_logado); st.rerun()
+    
+    st.markdown("**Vincular Novo Certificado:**")
     col_nc1, col_nc2 = st.columns([0.6, 0.4])
     novo_c_nome = col_nc1.text_input("Nome do Curso Extra:", key=f"nc_nome_{f_id}")
-    novo_c_val = col_nc2.date_input("Data de Vencimento:", key=f"nc_val_{f_id}")
-    
-    if st.button("➕ Vincular Certificado", use_container_width=True):
+    novo_c_val = col_nc2.date_input("Validade:", key=f"nc_val_{f_id}")
+    if st.button("➕ Adicionar Certificado Extra", use_container_width=True):
         if novo_c_nome.strip():
             adicionar_outro_curso(f_id, novo_c_nome.strip(), str(novo_c_val), email_usuario_logado)
-            st.success(f"Certificado {novo_c_nome} adicionado!")
             st.rerun()
-        else:
-            st.error("Digite o nome do curso para adicionar.")
 
     st.markdown("---")
     col_btn_salvar, col_btn_deletar = st.columns(2)
     with col_btn_salvar:
         if st.button("💾 Salvar Ficha", type="primary", use_container_width=True):
             atualizar_funcionario(f_id, edit_nome, edit_cargo, str(edit_curso), str(edit_aso), email_usuario_logado, id_area_editado)
-            st.success("Alterações salvas!")
+            st.session_state.id_editando = None
             st.rerun()
     with col_btn_deletar:
-        if st.button("🚨 REMOVER COLABORADOR", type="secondary", use_container_width=True):
+        if st.button("🚨 REMOVER", type="secondary", use_container_width=True):
             deletar_funcionario(f_id, email_usuario_logado)
             st.session_state.id_editando = None
             st.rerun()
 
-# --- CONFIGURAÇÃO INICIAL DA PÁGINA ---
+# --- CONFIGURAÇÃO INICIAL ---
 st.set_page_config(page_title="AlertaSafe Enterprise", layout="wide", page_icon="🛡️")
 init_db()
 
-# Gerenciador de Estados de Sessão
 if "logado" not in st.session_state: st.session_state.logado = False
 if "dados_usuario" not in st.session_state: st.session_state.dados_usuario = None
-if "bloqueio_tipo" not in st.session_state: st.session_state.bloqueio_tipo = None
-if "acesso_computado" not in st.session_state: st.session_state.acesso_computado = False
 if "id_editando" not in st.session_state: st.session_state.id_editando = None
 
-url_user = st.query_params.get("user_session", None)
+params = st.query_params
 
-if url_user and not st.session_state.logado:
-    if url_user == EMAIL_DEV:
-        st.session_state.logado = True
-        st.session_state.dados_usuario = {"email": EMAIL_DEV, "tipo": "dev"}
-    else:
-        user_b = buscar_usuario_por_email(url_user)
-        if user_b:
-            if user_b[2] == 0: st.session_state.bloqueio_tipo = "pagamento"
-            elif user_b[3] == 0: st.session_state.bloqueio_tipo = "permissao"
-            else:
-                st.session_state.logado = True
-                st.session_state.dados_usuario = {"email": user_b[0], "telefone": user_b[1], "tipo": "cliente", "nome_empresa": user_b[4]}
-                if not st.session_state.acesso_computado:
-                    computar_acesso(user_b[0])
-                    st.session_state.acesso_computado = True
-
-# Tela de Bloqueios de Sistema
-if st.session_state.bloqueio_tipo:
-    st.error("🛑 SISTEMA BLOQUEADO")
-    st.info(f"✉️ Contato do Desenvolvedor: {EMAIL_DEV}")
-    if st.button("↩️ Voltar para Tela de Login"):
-        st.session_state.bloqueio_tipo = None
-        st.session_state.logado = False
-        st.session_state.dados_usuario = None
-        st.session_state.acesso_computado = False
-        st.query_params.clear()
-        st.rerun()
-
-# Tela Inicial de Login Manual
-elif not st.session_state.logado:
-    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
+# --- PORTAL DE AUTO-CADASTRO ---
+if params.get("modo") == "auto_cadastro" and "empresa" in params:
+    empresa_link = params.get("empresa")
+    st.markdown(f"<h2 style='text-align: center; color: #1E3A8A;'>🛡️ AlertaSafe - Ficha de Admissão Digital</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center;'>Preencha os seus dados técnicos para validação de entrada na empresa: <b>{empresa_link}</b></p>", unsafe_allow_html=True)
     
+    with st.container(border=True):
+        nome_worker = st.text_input("Seu Nome Completo:")
+        cargo_worker = st.text_input("Cargo / Função Ocupacional:")
+        st.caption("Insira as validades encontradas nos seus documentos impressos:")
+        col_w1, col_w2 = st.columns(2)
+        val_curso_worker = col_w1.date_input("Validade do seu Curso Técnico Base:")
+        val_aso_worker = col_w2.date_input("Validade do seu Exame Médico ASO:")
+        
+        if st.button("🚀 Enviar Dados para Homologação", type="primary", use_container_width=True):
+            if nome_worker and cargo_worker:
+                adicionar_funcionario_pendente(nome_worker, cargo_worker, str(val_curso_worker), str(val_aso_worker), empresa_link)
+                st.success("🎉 Seus dados foram enviados com sucesso! O RH fará a revisão técnica do seu cadastro.")
+                st.stop()
+            else: st.error("Por favor, preencha o seu nome e cargo antes de enviar.")
+    st.stop()
+
+# --- FLUXO DE LOGIN ---
+url_user = params.get("user_session", None)
+if url_user and not st.session_state.logado:
+    user_b = buscar_usuario_por_email(url_user)
+    if user_b and user_b[2] == 1 and user_b[3] == 1:
+        st.session_state.logado = True
+        st.session_state.dados_usuario = {"email": user_b[0], "telefone": user_b[1], "tipo": "dev" if user_b[0] == EMAIL_DEV else "cliente", "nome_empresa": user_b[4]}
+
+if not st.session_state.logado:
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
     col_log1, col_log2, col_log3 = st.columns([1, 1.2, 1])
     with col_log2:
         with st.container(border=True):
             st.markdown("### 🔐 Autenticação Restrita")
-            email_login = st.text_input("E-mail Empresarial:")
-            senha_login = st.text_input("Senha Governamental:", type="password")
-            
-            if st.button("Entrar no Painel Seguro", type="primary", use_container_width=True):
-                if email_login == EMAIL_DEV and senha_login == SENHA_DESENVOLVEDOR:
-                    st.session_state.logado = True
-                    st.session_state.dados_usuario = {"email": EMAIL_DEV, "tipo": "dev"}
-                    st.query_params["user_session"] = EMAIL_DEV
-                    st.rerun()
-                else:
+            with st.form("formulario_login", clear_on_submit=False):
+                email_login = st.text_input("E-mail Empresarial:")
+                senha_login = st.text_input("Senha Governamental:", type="password")
+                botao_entrar = st.form_submit_button("Entrar no Painel Seguro", type="primary", use_container_width=True)
+                
+                if botao_entrar:
                     usuario = verificar_login(email_login, senha_login)
                     if usuario:
-                        if usuario[2] == 0:
-                            st.session_state.bloqueio_tipo = "pagamento"
-                            st.rerun()
-                        elif usuario[3] == 0:
-                            st.session_state.bloqueio_tipo = "permissao"
-                            st.rerun()
+                        if usuario[2] == 0 or usuario[3] == 0:
+                            st.error("❌ Acesso Bloqueado. Sua conta encontra-se suspensa por falta de pagamento. Contacte o administrador.")
                         else:
                             st.session_state.logado = True
-                            st.session_state.dados_usuario = {"email": usuario[0], "telefone": usuario[1], "tipo": "cliente", "nome_empresa": usuario[4]}
-                            computar_acesso(usuario[0])
-                            st.session_state.acesso_computado = True
+                            st.session_state.dados_usuario = {"email": usuario[0], "telefone": usuario[1], "tipo": "dev" if usuario[0] == EMAIL_DEV else "cliente", "nome_empresa": usuario[4]}
                             st.query_params["user_session"] = usuario[0]
                             st.rerun()
-                    else:
-                        st.error("❌ Credenciais inválidas.")
-
-# Tela Principal Logada do Sistema
+                    else: st.error("❌ Credenciais inválidas ou conta não localizada.")
 else:
-    tipo_usuario = st.session_state.dados_usuario['tipo']
-    
-    col_generico_t, col_sair = st.columns([0.85, 0.15])
-    with col_generico_t:
-        if tipo_usuario == "dev":
-            st.title("🛠️ CENTRAL MATRIX - Painel do Desenvolvedor")
-        else:
-            nome_exibicao = st.session_state.dados_usuario.get('nome_empresa') or st.session_state.dados_usuario['email']
-            st.markdown(f"<h2 style='margin:0;'>🛡️ AlertaSafe — {nome_exibicao}</h2>", unsafe_allow_html=True)
-            st.caption(f"Usuário Autenticado: **{st.session_state.dados_usuario['email']}**")
+    email_usuario_logado = st.session_state.dados_usuario['email']
+    tipo_usuario = st.session_state.dados_usuario.get('tipo', 'cliente')
+
+    # Cabeçalho Superior Geral
+    col_t1, col_sair = st.columns([0.85, 0.15])
+    with col_t1: st.markdown(f"<h2 style='margin:0;'>🛡️ Painel AlertaSafe — {st.session_state.dados_usuario.get('nome_empresa', email_usuario_logado)}</h2>", unsafe_allow_html=True)
     with col_sair:
-        if st.button("🚪 Sair do Sistema", use_container_width=True):
-            st.session_state.logado = False
-            st.session_state.dados_usuario = None
-            st.session_state.acesso_computado = False
-            st.session_state.id_editando = None
-            st.query_params.clear()
-            st.rerun()
-            
-    st.write("---")
+        if st.button("🚪 Sair", use_container_width=True):
+            st.session_state.logado = False; st.session_state.dados_usuario = None
+            st.query_params.clear(); st.rerun()
 
-    # --- ABA INTERNA DO DESENVOLVEDOR ---
-    if tipo_usuario == "dev":
-        aba_cad_cliente, aba_gerenciar_licencas, aba_bugs = st.tabs(["➕ Autorizar Entrada", "🏢 Empresas", "🪲 Logs de Bugs"])
+    # =========================================================================
+    # 👑 VISÃO EXCLUSIVA DO DESENVOLVEDOR MASTER (PAINEL DEV)
+    # =========================================================================
+    if email_usuario_logado == EMAIL_DEV or tipo_usuario == "dev":
+        st.markdown("### 🎛️ Central de Governança do Desenvolvedor")
         
-        with aba_cad_cliente:
-            st.subheader("Configurar Credenciais de Acesso")
-            with st.form("form_dev_cadastro"):
-                c_nome_empresa = st.text_input("Nome Fantasia / Nome da Empresa:")
-                c_email = st.text_input("E-mail da Empresa (Será o login):")
-                c_senha = st.text_input("Senha de Acesso:")
-                c_cpf = st.text_input("CNPJ ou CPF da Empresa:")
-                c_tel_raw = st.text_input("Telefone com DDD (Apenas números):", help="Ex: 22999998888")
-                
-                if st.form_submit_button("Gerar Conta Ativa"):
-                    c_tel = re.sub(r'\D', '', c_tel_raw)
-                    if c_nome_empresa and c_email and c_senha and c_cpf and c_tel:
-                        if len(c_tel) >= 10:
-                            if dev_cadastrar_cliente(c_email, c_senha, c_cpf, c_tel, c_nome_empresa):
-                                st.success(f"Empresa '{c_nome_empresa}' cadastrada!")
-                                st.rerun()
-                            else: st.error("Erro: Este e-mail já existe no banco.")
-                        else: st.error("❌ Formato de telefone inválido.")
-                    else: st.error("Preencha todos os campos.")
-                        
-        with aba_gerenciar_licencas:
-            st.subheader("🏢 Status de Licenciamento Global")
-            lista_users = listar_todos_usuarios_do_sistema()
-            if not lista_users:
-                st.info("Nenhum cliente ativo encontrado.")
-            else:
-                df_usuarios = pd.DataFrame(lista_users, columns=["email", "cpf", "telefone", "status_pagamento", "permissao_uso", "nome_empresa", "acessos_count"])
-                df_usuarios["nome_empresa"] = df_usuarios["nome_empresa"].fillna("Sem Nome").str.strip()
-                empresas_unicas = sorted(df_usuarios["nome_empresa"].unique())
-                
-                for nome_emp in empresas_unicas:
-                    df_filtrado = df_usuarios[df_usuarios["nome_empresa"] == nome_emp]
-                    with st.expander(f"🏢 Bloco: {nome_emp} ({len(df_filtrado)} conta(s))", expanded=True):
-                        dados_tabela = []
-                        for _, row in df_filtrado.iterrows():
-                            dados_tabela.append({
-                                "Login / E-mail": row["email"],
-                                "CNPJ/CPF": row["cpf"],
-                                "Telefone": row["telefone"],
-                                "Total de Acessos": f"📊 {row['acessos_count']} login(s)",
-                                "Status Financeiro": "🟢 PAGO / ATIVO" if row["status_pagamento"] == 1 else "🔴 INADIMPLENTE",
-                                "Acesso ao Aplicativo": "✅ LIBERADO" if row["permissao_uso"] == 1 else "⏳ AGUARDANDO LIBERAÇÃO"
-                            })
-                        st.table(dados_tabela)
-                
-                st.write("---")
-                st.markdown("### ⚡ Ações de Controle de Licença")
-                email_modificar = st.selectbox("Selecione qual Empresa deseja gerenciar:", [u[0] for u in lista_users])
-                col_l1, col_l2 = st.columns(2)
-                with col_l1:
-                    with st.container(border=True):
-                        st.markdown("**Controle de Pagamentos**")
-                        if st.button("🟢 Marcar como PAGO / Reativar", use_container_width=True):
-                            dev_alterar_pagamento(email_modificar, 1); st.rerun()
-                        if st.button("🚨 Bloquear por Inadimplência", use_container_width=True):
-                            dev_alterar_pagamento(email_modificar, 0); st.rerun()
-                with col_l2:
-                    with st.container(border=True):
-                        st.markdown("**Permissões de Uso Administrativo**")
-                        if st.button("✅ Conceder PERMISSÃO LIVRE", use_container_width=True):
-                            dev_alterar_permissao(email_modificar, 1); st.rerun()
-                        if st.button("❌ Revogar Permissão", use_container_width=True):
-                            dev_alterar_permissao(email_modificar, 0); st.rerun()
-
-        with aba_bugs:
-            st.subheader("🪲 Relatórios de Falhas em Tempo Real")
-            lista_bugs = listar_bugs_sistema()
-            if not lista_bugs:
-                st.success("🎉 Nenhum bug ou falha crítica registrada! O sistema está estável.")
-            else:
-                if st.button("🗑️ Limpar Histórico de Erros", type="secondary"):
-                    limpar_historico_bugs()
-                    st.rerun()
-                
-                for b_id, b_user, b_data, b_msg, b_trace, b_status in lista_bugs:
-                    with st.container(border=True):
-                        if b_status == "Resolvido":
-                            st.markdown(f"🟢 **[RESOLVIDO] Erro #{b_id}** — por `{b_user}` em `{b_data}`")
-                            st.success(f"✔️ **Mensagem:** {b_msg}")
-                        else:
-                            st.markdown(f"🔴 **[PENDENTE] Erro #{b_id}** — por `{b_user}` em `{b_data}`")
-                            st.warning(f"⚠️ **Mensagem:** {b_msg}")
-                            if st.button("✓ Marcar como Resolvido", key=f"resolv_{b_id}"):
-                                resolver_bug_sistema(b_id)
-                                st.rerun()
-                        with st.expander("🔍 Ver Rastro Técnico Completo"):
-                            st.code(b_trace, language="python")
-
-    # --- PAINEL DO CLIENTE ---
-    else:
-        email_usuario_logado = st.session_state.dados_usuario['email']
+        aba_clientes, aba_logs = st.tabs(["👥 Gerenciamento de Clientes / Empresas", "🪵 Logs de Erros do Sistema"])
         
-        try:
-            lista_areas_cadastradas = listar_areas(email_usuario_logado)
-            dicionario_areas = {a[0]: a[1] for a in lista_areas_cadastradas}
+        with aba_clientes:
+            st.subheader("Controle de Licenças e Permissões")
             
-            aba_dash, aba_cadastro, aba_cadastro_massa, aba_config_areas, aba_notificacoes = st.tabs([
-                "📊 Dashboard Geral por Áreas", "➕ Cadastrar Colaborador",
-                "📥 Importar Planilha (Massa)", "🏗️ Criar/Editar Áreas da Empresa",
-                "📲 Central de Alertas Automatizados"
-            ])
-
-            # Tratamento do Modal Isolado por Estado para Evitar Fechamento Precoce
-            if st.session_state.id_editando:
-                modal_editar_funcionario_isolado(st.session_state.id_editando, email_usuario_logado, dicionario_areas)
-
-            def renderizar_grid_funcionarios(funcionarios_lista):
-                col_h1, col_h2, col_h3, col_h4, col_h5, col_h6, col_h7 = st.columns([0.6, 1.8, 1.3, 1.3, 1.3, 2.5, 0.6])
-                col_h1.markdown("**ID**"); col_h2.markdown("**Nome**"); col_h3.markdown("**Cargo**")
-                col_h4.markdown("**Curso Base**"); col_h5.markdown("**Status ASO**"); col_h6.markdown("**Certificados Extras**"); col_h7.markdown("**Editar**")
-                st.markdown("<hr style='margin:4px 0px 12px 0px; border-color:#333;' />", unsafe_allow_html=True)
-                
-                for func in funcionarios_lista:
-                    f_id = func['ID']
-                    col1, col2, col3, col4, col5, col6, col7 = st.columns([0.6, 1.8, 1.3, 1.3, 1.3, 2.5, 0.6])
-                    col1.write(f"`{f_id}`")
-                    col2.write(func['Nome Completo'])
-                    col3.write(func['Cargo'])
-                    col4.write(f"{func['Venc. Curso Base']}\n\n{func['Status Curso']}")
-                    col5.write(f"{func['Venc. ASO']}\n\n{func['Status ASO']}")
-                    col6.write(func['Certificados Extras (Status)'])
+            # --- FORMULÁRIO DE CADASTRO DE NOVOS CLIENTES ---
+            with st.expander("➕ Cadastrar Novo Cliente / Empresa", expanded=False):
+                with st.form("form_novo_usuario_dev", clear_on_submit=True):
+                    col_u1, col_u2 = st.columns(2)
+                    u_empresa = col_u1.text_input("Nome Comercial da Empresa:")
+                    u_email = col_u2.text_input("E-mail de Login do Cliente:")
                     
-                    # Clicar altera o estado global e aciona o Rerun para abrir o modal de forma segura
-                    if col7.button("✏️", key=f"btn_edit_{f_id}"):
-                        st.session_state.id_editando = f_id
-                        st.rerun()
-
-            with aba_dash:
-                lista_funcionarios = listar_todos_funcionarios(email_usuario_logado)
-                todos_certificados_banco = listar_outros_cursos(email_usuario_logado)
-                
-                col_pesq1, col_pesq2 = st.columns([0.6, 0.4])
-                with col_pesq1:
-                    termo_pesquisa = st.text_input("🔍 Pesquisar Colaborador:", placeholder="Digite o nome ou cargo...").strip().lower()
-                with col_pesq2:
-                    filtro_status = st.selectbox(
-                        "🎯 Filtrar por Situação Documental:",
-                        ["Todos", "🔴 VENCIDO", "🟡 ATENÇÃO", "🟢 EM DIA"]
-                    )
-                
-                mapa_certificados = {}
-                for cert in todos_certificados_banco:
-                    func_id = cert[4]
-                    if func_id not in mapa_certificados: mapa_certificados[func_id] = []
-                    status_cert = calcular_status(cert[3])
-                    mapa_certificados[func_id].append(f"{cert[2]} ({status_cert})")
-
-                vencidos, atencao, total_colab = 0, 0, len(lista_funcionarios)
-                funcionarios_processados = []
-
-                for func in lista_funcionarios:
-                    f_id = func[0]
-                    status_curso = calcular_status(func[3])
-                    status_aso = calcular_status(func[4])
-                    lista_extras_func = mapa_certificados.get(f_id, ["-"])
+                    col_u3, col_u4, col_u5 = st.columns(3)
+                    u_senha = col_u3.text_input("Senha de Acesso:", type="password")
+                    u_cpf = col_u4.text_input("CPF ou CNPJ:")
+                    u_telefone = col_u5.text_input("Telefone:")
                     
-                    tem_vencido = "🔴" in status_curso or "🔴" in status_aso or any("🔴" in c for c in lista_extras_func)
-                    tem_atencao = "🟡" in status_curso or "🟡" in status_aso or any("🟡" in c for c in lista_extras_func)
-                    
-                    if tem_vencido:
-                        vencidos += 1
-                        status_geral_func = "🔴 VENCIDO"
-                    elif tem_atencao:
-                        atencao += 1
-                        status_geral_func = "🟡 ATENÇÃO"
-                    else:
-                        status_geral_func = "🟢 EM DIA"
-                        
-                    funcionarios_processados.append({
-                        "ID": f_id, "Nome Completo": func[1], "Cargo": func[2],
-                        "Venc. Curso Base": func[3], "Status Curso": status_curso,
-                        "Venc. ASO": func[4], "Status ASO": status_aso,
-                        "Certificados Extras (Status)": ", ".join(lista_extras_func),
-                        "Area_ID": func[5],
-                        "Status Geral": status_geral_func
-                    })
-
-                col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("👥 Total de Colaboradores", total_colab)
-                col_m2.metric("🚨 Bloqueados / Vencidos", vencidos, delta="- Crítico" if vencidos > 0 else "Regularizado", delta_color="inverse")
-                col_m3.metric("⚠️ Exige Atenção (30 dias)", atencao, delta="Atenção" if atencao > 0 else "Estável", delta_color="off")
-                st.write("---")
-
-                funcionarios_filtrados = []
-                for f in funcionarios_processados:
-                    passou_texto = not termo_pesquisa or (termo_pesquisa in f["Nome Completo"].lower() or termo_pesquisa in f["Cargo"].lower())
-                    passou_status = filtro_status == "Todos" or f["Status Geral"] == filtro_status
-                    if passou_texto and passou_status:
-                        funcionarios_filtrados.append(f)
-
-                if not funcionarios_filtrados:
-                    st.warning("⚠️ Nenhum colaborador encontrado para os filtros selecionados.")
-                else:
-                    funcionarios_por_area = {a_nome: [] for a_nome in dicionario_areas.values()}
-                    funcionarios_sem_area = []
-                    
-                    for f in funcionarios_filtrados:
-                        if f["Area_ID"] in dicionario_areas: 
-                            funcionarios_por_area[dicionario_areas[f["Area_ID"]]].append(f)
-                        else: 
-                            funcionarios_sem_area.append(f)
-                    
-                    if lista_areas_cadastradas:
-                        for nome_da_area, lista_funcs in funcionarios_por_area.items():
-                            if len(lista_funcs) > 0:
-                                with st.expander(f"📁 Setor / Área: {nome_da_area} ({len(lista_funcs)})", expanded=True):
-                                    renderizar_grid_funcionarios(lista_funcs)
-                    
-                    if funcionarios_sem_area:
-                        with st.expander(f"❓ Sem Área Definida ({len(funcionarios_sem_area)})", expanded=True):
-                            renderizar_grid_funcionarios(funcionarios_sem_area)
-
-            with aba_cadastro:
-                st.subheader("➕ Adicionar Novo Colaborador")
-                with st.form("form_trab", clear_on_submit=True):
-                    col_ins1, col_ins2 = st.columns(2)
-                    nome_input = col_ins1.text_input("Nome Completo do Funcionário:")
-                    cargo_input = col_ins1.text_input("Cargo / Função:")
-                    opcoes_cadastro_area = {"Deixar em Setor Geral": None}
-                    for id_a, nome_a in dicionario_areas.items(): opcoes_cadastro_area[nome_a] = id_a
-                    area_selecionada_cadastro = col_ins2.selectbox("Vincular à Área:", list(opcoes_cadastro_area.keys()))
-                    curso_input = col_ins1.date_input("Validade do Curso Técnico:")
-                    aso_input = col_ins2.date_input("Validade do Exame Médico ASO:")
-                    
-                    if st.form_submit_button("Cadastrar Colaborador", type="primary", use_container_width=True):
-                        if nome_input and cargo_input:
-                            adicionar_funcionario(nome_input, cargo_input, str(curso_input), str(aso_input), email_usuario_logado, opcoes_cadastro_area[area_selecionada_cadastro])
-                            st.success(f"{nome_input} cadastrado!")
-                            st.rerun()
-
-            with aba_cadastro_massa:
-                st.subheader("📥 Cadastro de Funcionários em Lote")
-                df_modelo = pd.DataFrame(columns=["Nome Completo", "Cargo", "Validade Curso (AAAA-MM-DD)", "Validade ASO (AAAA-MM-DD)"])
-                df_modelo.loc[0] = ["João da Silva", "Alceador", "2026-12-15", "2027-01-20"]
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    df_modelo.to_excel(writer, sheet_name='Modelo_Importacao', index=False)
-                st.download_button(label="📥 Baixar Planilha Modelo", data=buffer.getvalue(), file_name="modelo_importacao.xlsx")
-                
-                opcoes_lote_area = {"Vincular ao Setor Geral": None}
-                for id_a, nome_a in dicionario_areas.items(): opcoes_lote_area[nome_a] = id_a
-                area_selecionada_lote = st.selectbox("Setor de Destino do Lote:", list(opcoes_lote_area.keys()))
-                arquivo_lote = st.file_uploader("Escolha o arquivo (.xlsx ou .csv):", type=["xlsx", "csv"])
-                
-                if arquivo_lote is not None:
-                    df_carregado = pd.read_excel(arquivo_lote) if arquivo_lote.name.endswith('.xlsx') else pd.read_csv(arquivo_lote)
-                    st.dataframe(df_carregado, use_container_width=True)
-                    if st.button("🔥 Confirmar Importação Lote", type="primary"):
-                        erros_importacao = []
-                        sucessos = 0
-                        
-                        for idx, row in df_carregado.iterrows():
-                            if str(row["Nome Completo"]).strip() == "João da Silva": continue
+                    if st.form_submit_button("🚀 Registrar Empresa e Ativar Licença", type="primary", use_container_width=True):
+                        if u_email and u_senha and u_empresa:
                             try:
-                                val_curso = pd.to_datetime(row["Validade Curso (AAAA-MM-DD)"]).strftime("%Y-%m-%d")
-                                val_aso = pd.to_datetime(row["Validade ASO (AAAA-MM-DD)"]).strftime("%Y-%m-%d")
-                                adicionar_funcionario(str(row["Nome Completo"]), str(row["Cargo"]), val_curso, val_aso, email_usuario_logado, opcoes_lote_area[area_selecionada_lote])
-                                sucessos += 1
-                            except Exception as err_lote:
-                                erros_importacao.append(f"Linha {idx + 2} ({row.get('Nome Completo', 'Sem Nome')}): Erro na formatação de datas.")
-                        
-                        if erros_importacao:
-                            st.warning(f"⚠️ Importação concluída parcial: {sucessos} adicionados com sucesso.")
-                            with st.expander("🔍 Ver Linhas Puladas / Erros de Data"):
-                                for erro_item in erros_importacao:
-                                    st.write(f"• {erro_item}")
+                                conn = sqlite3.connect('alerta_safe.db')
+                                cursor = conn.cursor()
+                                senha_criptografada = criptografar_senha(u_senha)
+                                
+                                cursor.execute("""
+                                    INSERT INTO usuarios (email, senha, cpf, telefone, status_pagamento, permissao_uso, nome_empresa)
+                                    VALUES (?, ?, ?, ?, 1, 1, ?)
+                                """, (u_email.strip(), senha_criptografada, u_cpf.strip(), u_telefone.strip(), u_empresa.strip()))
+                                conn.commit()
+                                conn.close()
+                                st.success(f"🎉 Empresa '{u_empresa}' cadastrada com sucesso!")
+                                st.rerun()
+                            except sqlite3.IntegrityError:
+                                st.error("❌ Erro: Este e-mail já está cadastrado no banco de dados.")
+                            except Exception as e:
+                                st.error(f"Erro operacional: {e}")
                         else:
-                            st.success(f"🎉 Todos os {sucessos} funcionários foram importados perfeitamente!")
+                            st.warning("⚠️ Preencha pelo menos Nome da Empresa, E-mail e Senha.")
+            
+            st.markdown("---")
+            st.markdown("#### Empresas com Acesso Ativo")
+            
+            conn = sqlite3.connect('alerta_safe.db')
+            df_usuarios = pd.read_sql_query("SELECT id, nome_empresa, email, cpf, status_pagamento, permissao_uso FROM usuarios", conn)
+            conn.close()
+            
+            if not df_usuarios.empty:
+                # Alteração visual para facilitar o entendimento do status de bloqueio
+                df_usuarios['status_pagamento'] = df_usuarios['status_pagamento'].apply(lambda x: "🟢 Pago" if x == 1 else "🔴 Inadimplente")
+                df_usuarios['permissao_uso'] = df_usuarios['permissao_uso'].apply(lambda x: "🟢 Liberado" if x == 1 else "🔴 BLOQUEADO")
+                st.dataframe(df_usuarios, use_container_width=True)
+                
+                # --- 🔥 CENTRAL DE BLOQUEIO / ALTERAÇÃO DE STATUS DE PAGAMENTO ---
+                st.markdown("#### ⚡ Ações Rápidas de Cobrança e Bloqueio")
+                col_sel_emp, col_btn_ok, col_btn_block = st.columns([0.5, 0.25, 0.25])
+                
+                # Mapeamento para caixa de seleção
+                opcoes_empresas = {f"{row['nome_empresa']} ({row['email']})": row['id'] for _, row in df_usuarios.iterrows()}
+                empresa_selecionada = col_sel_emp.selectbox("Selecione a empresa para alterar o acesso:", list(opcoes_empresas.keys()))
+                
+                if empresa_selecionada:
+                    id_usuario_alt = opcoes_empresas[empresa_selecionada]
+                    
+                    if col_btn_ok.button("🟢 Permitir Acesso (Pago)", use_container_width=True):
+                        alterar_status_licenca(id_usuario_alt, 1, 1)
+                        st.success("Licença reativada e acesso liberado!")
                         st.rerun()
+                        
+                    if col_btn_block.button("🔴 Bloquear Acesso (Inadimplente)", use_container_width=True):
+                        alterar_status_licenca(id_usuario_alt, 0, 0)
+                        st.error("Acesso bloqueado por falta de pagamento!")
+                        st.rerun()
+            else: 
+                st.info("Nenhum cliente cadastrado no banco de dados até o momento.")
+                
+        with aba_logs:
+            st.subheader("Rastro de Erros em Tempo Real (Logs)")
+            conn = sqlite3.connect('alerta_safe.db')
+            df_erros = pd.read_sql_query("SELECT * FROM logs_erros ORDER BY id DESC", conn)
+            conn.close()
+            
+            if not df_erros.empty:
+                st.dataframe(df_erros, use_container_width=True)
+            else: st.success("✅ Nenhum erro registrado! Sistema operando perfeitamente.")
 
-            with aba_config_areas:
-                st.subheader("🏗️ Controle de Setores")
-                col_area1, col_area2 = st.columns(2)
-                with col_area1:
-                    nova_area_nome = st.text_input("Nome Comercial do Setor:")
-                    if st.button("Criar Setor Agora"):
-                        if nova_area_nome: adicionar_area(nova_area_nome, email_usuario_logado); st.rerun()
-                with col_area2:
-                    if lista_areas_cadastradas:
-                        opcoes_deletar_area = {a[1]: a[0] for a in lista_areas_cadastradas}
-                        area_deletar_nome = st.selectbox("Escolha o setor para remover:", list(opcoes_deletar_area.keys()))
-                        if st.button("Remover Setor"): deletar_area(opcoes_deletar_area[area_deletar_nome], email_usuario_logado); st.rerun()
-
-            with aba_notificacoes:
-                st.subheader("📲 Central de Alertas Automatizados")
-                alertas_encontrados = []
-                if lista_funcionarios:
-                    for func in lista_funcionarios:
-                        if "🟡" in calcular_status(func[3]): alertas_encontrados.append({"nome": func[1], "item": "Curso Técnico Base", "venc": func[3]})
-                        if "🟡" in calcular_status(func[4]): alertas_encontrados.append({"nome": func[1], "item": "Exame Médico ASO", "venc": func[4]})
-                if not alertas_encontrados: st.success("🎉 Todos os prazos regularizados.")
-                else:
-                    telefone_destino = re.sub(r'\D', '', str(st.session_state.dados_usuario['telefone']))
-                    for alerta in alertas_encontrados:
-                        with st.container(border=True):
-                            st.markdown(f"📌 **{alerta['nome']}** — *{alerta['item']}* expira em `{alerta['venc']}`.")
-                            texto_url = urllib.parse.quote(f"AlertaSafe: {alerta['nome']} item {alerta['item']} vence em {alerta['venc']}.")
-                            st.markdown(f'<a href="https://api.whatsapp.com/send?phone=55{telefone_destino}&text={texto_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;">💬 Disparar Zap</button></a>', unsafe_allow_html=True)
+    # =========================================================================
+    # 🏢 VISÃO TRADICIONAL DOS CLIENTES DA PLATAFORMA (EMPRESAS)
+    # =========================================================================
+    else:
+        lista_areas_cadastradas = listar_areas(email_usuario_logado)
+        dicionario_areas = {a[0]: a[1] for a in lista_areas_cadastradas}
         
-        except Exception as e:
-            registrar_bug_sistema(email_usuario_logado, e)
-            st.error("🛑 Ocorreu um erro interno de processamento.")
-            st.info("💡 O erro técnico foi mapeado de forma automática e enviado diretamente para a mesa do Desenvolvedor.")
+        requisitos_banco = listar_requisitos_matriz(email_usuario_logado)
+        mapa_requisitos = {}
+        for r_id, r_cargo, r_curso in requisitos_banco:
+            if r_cargo not in mapa_requisitos: mapa_requisitos[r_cargo] = []
+            mapa_requisitos[r_cargo].append(r_curso)
+
+        if st.session_state.id_editando: modal_editar_funcionario_isolado(st.session_state.id_editando, email_usuario_logado, dicionario_areas)
+
+        aba_dash, aba_fila_trabalhador, aba_cadastro, aba_matriz_trava, aba_config = st.tabs([
+            "📊 Dashboard Operacional", "📥 Fila de Admissão Digital", "➕ Novo Registro Individual", "📋 Matriz de NRs por Função", "🏗️ Infraestrutura / Áreas"
+        ])
+
+        def renderizar_grid_funcionarios(funcionarios_lista):
+            st.markdown("<hr style='margin:4px 0; border-color:#555;' />", unsafe_allow_html=True)
+            for func in funcionarios_lista:
+                f_id = func['ID']
+                col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 1.8, 1.3, 1.3, 1.3, 2.5, 0.5])
+                col1.write(f"`{f_id}`")
+                col2.write(func['Nome'])
+                col3.write(func['Cargo'])
+                col4.write(f"{func['VCourses']}\n\n{func['StatC']}")
+                col5.write(f"{func['VASO']}\n\n{func['StatA']}")
+                
+                if func['Irregularidades']:
+                    col6.markdown(f"<span style='color:#EF4444;'><b>⚠️ BLOQUEADO EM OPERAÇÃO:</b><br>{func['Irregularidades']}</span>", unsafe_allow_html=True)
+                else: col6.write(func['Extras'] if func['Extras'] else "Nenhum certificado anexo.")
+                    
+                if col7.button("✏️", key=f"btn_edit_{f_id}"):
+                    st.session_state.id_editando = f_id
+                    st.rerun()
+
+        with aba_dash:
+            lista_funcionarios = listar_funcionarios_por_status(email_usuario_logado, 'Aprovado')
+            todos_certificados = listar_outros_cursos(email_usuario_logado)
+            
+            mapa_certificados = {}
+            for cert in todos_certificados:
+                func_id = cert[4]
+                if func_id not in mapa_certificados: mapa_certificados[func_id] = {}
+                mapa_certificados[func_id][cert[2].strip().upper()] = cert[3]
+
+            funcionarios_processados = []
+            for func in lista_funcionarios:
+                f_id, f_nome, f_cargo, f_vcurso, f_vaso, f_area = func
+                status_curso = calcular_status(f_vcurso)
+                status_aso = calcular_status(f_vaso)
+                certificados_do_cara = mapa_certificados.get(f_id, {})
+                
+                requisitos_do_cargo = mapa_requisitos.get(f_cargo.strip().upper(), [])
+                falhas_encontradas = []
+                for req_curso in requisitos_do_cargo:
+                    req_curso_clean = req_curso.strip().upper()
+                    if req_curso_clean not in certificados_do_cara: falhas_encontradas.append(f"Falta curso obrigatório: {req_curso}")
+                    else:
+                        validade_do_req = certificados_do_cara[req_curso_clean]
+                        if "🔴" in calcular_status(validade_do_req): falhas_encontradas.append(f"{req_curso} está VENCIDO")
+
+                texto_irregularidades = "; ".join(falhas_encontradas)
+                funcionarios_processados.append({
+                    "ID": f_id, "Nome": f_nome, "Cargo": f_cargo, "VCourses": f_vcurso, "StatC": status_curso, "VASO": f_vaso, "StatA": status_aso,
+                    "Extras": ", ".join([f"{k} ({calcular_status(v)})" for k, v in certificados_do_cara.items()]), "Area_ID": f_area, "Irregularidades": texto_irregularidades
+                })
+
+            if lista_areas_cadastradas:
+                for id_a, nome_a in lista_areas_cadastradas:
+                    filtro_area = [f for f in funcionarios_processados if f["Area_ID"] == id_a]
+                    if filtro_area:
+                        with st.expander(f"📁 Setor: {nome_a} ({len(filtro_area)})", expanded=True): renderizar_grid_funcionarios(filtro_area)
+                            
+            sem_area = [f for f in funcionarios_processados if f["Area_ID"] is None]
+            if sem_area:
+                with st.expander(f"❓ Funcionários sem Setor Definido ({len(sem_area)})", expanded=True): renderizar_grid_funcionarios(sem_area)
+
+        with aba_fila_trabalhador:
+            st.subheader("📥 Central de Homologação de Admissão Remota")
+            host_atual = "https://seu-app.streamlit.app"
+            link_autocadastro = f"{host_atual}/?modo=auto_cadastro&empresa={urllib.parse.quote(email_usuario_logado)}"
+            st.info("💡 **Link de Recrutamento:** Copie o endereço abaixo e envie pelo WhatsApp para os novos colaboradores.")
+            st.code(link_autocadastro, language="markdown")
+            
+            fila_pendentes = listar_funcionarios_por_status(email_usuario_logado, 'Pendente')
+            if not fila_pendentes: st.success("🎉 Nenhuma ficha pendente de revisão.")
+            else:
+                for p_id, p_nome, p_cargo, p_vcurso, p_vaso, _ in fila_pendentes:
+                    with st.container(border=True):
+                        col_p1, col_p2, col_p3 = st.columns([0.6, 0.2, 0.2])
+                        with col_p1:
+                            st.markdown(f"👤 **Nome:** {p_nome} | **Cargo:** {p_cargo}")
+                            st.markdown(f"📅 *Vencimento Curso Base:* `{p_vcurso}` | *Vencimento ASO:* `{p_vaso}`")
+                        with col_p2:
+                            if st.button("✅ Aprovar Entrada", key=f"aprov_{p_id}", use_container_width=True):
+                                alterar_status_aprovacao_funcionario(p_id, 'Aprovado', email_usuario_logado)
+                                st.success("Funcionário admitido!"); st.rerun()
+                        with col_p3:
+                            if st.button("❌ Recusar Ficha", key=f"recus_{p_id}", use_container_width=True):
+                                alterar_status_aprovacao_funcionario(p_id, 'Recusado', email_usuario_logado)
+                                st.warning("Ficha descartada."); st.rerun()
+
+        with aba_cadastro:
+            st.subheader("➕ Cadastro Administrativo Direto")
+            with st.form("form_cadastro_direto", clear_on_submit=True):
+                n_nome = st.text_input("Nome Completo:")
+                n_cargo = st.text_input("Cargo:")
+                opcoes_c = {"Setor Geral": None}
+                for id_a, nome_a in lista_areas_cadastradas: opcoes_c[nome_a] = id_a
+                n_area = st.selectbox("Vincular ao Setor:", list(opcoes_c.keys()))
+                n_vcurso = st.date_input("Validade do Curso Técnico:")
+                n_vaso = st.date_input("Validade do Exame ASO:")
+                if st.form_submit_button("Cadastrar e Homologar"):
+                    if n_nome and n_cargo:
+                        adicionar_funcionario(n_nome, n_cargo, str(n_vcurso), str(n_vaso), email_usuario_logado, opcoes_c[n_area])
+                        st.success("Colaborador registrado com sucesso!"); st.rerun()
+
+        with aba_matriz_trava:
+            st.subheader("📋 Configuração de Matriz de Requisitos Mandatórios")
+            with st.form("form_matriz"):
+                m_cargo = st.text_input("Nome do Cargo Técnico (Ex: Soldador, Montador):")
+                m_curso = st.text_input("Nome do Certificado Exigido por Lei (Ex: NR-35, NR-10):")
+                if st.form_submit_button("🔨 Fixar Regra Regulatória"):
+                    if m_cargo and m_curso:
+                        adicionar_requisito_matriz(m_cargo, m_curso, email_usuario_logado)
+                        st.success(f"Regra fixada: Todo {m_cargo} precisa de {m_curso} ativo!"); st.rerun()
+                        
+            st.markdown("### ⚠️ Regras Ativas na Empresa")
+            if not requisitos_banco: st.caption("Nenhuma obrigatoriedade de cargo configurada atualmente.")
+            else:
+                for r_id, r_cargo, r_curso in requisitos_banco:
+                    col_r1, col_r2 = st.columns([0.8, 0.2])
+                    col_r1.write(f"• Profissionais no cargo de **{r_cargo}** precisam obrigatoriamente do certificado de **{r_curso}**.")
+                    if col_r2.button("Deletar Regra", key=f"del_req_{r_id}"):
+                        delete_requisito_matriz(r_id, email_usuario_logado); st.rerun()
+
+        with aba_config:
+            st.subheader("🏗️ Controle de Divisão Industrial")
+            col_ar1, col_ar2 = st.columns(2)
+            with col_ar1:
+                nome_nova_area = st.text_input("Nome Comercial da Área / Frente de Trabalho:")
+                if st.button("Criar Setor"):
+                    if nome_nova_area: adicionar_area(nome_nova_area, email_usuario_logado); st.rerun()
