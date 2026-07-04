@@ -377,7 +377,6 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
         st.markdown("### 📋 Seus Certificados Extras & NRs")
         st.caption("Adicione um por um abaixo. Os certificados salvos aparecerão em sequência.")
         
-        # Container dinâmico para listar os cursos já adicionados em cartões sequenciais
         if st.session_state.cursos_temporarios_autocadastro:
             for idx, c_temp in enumerate(st.session_state.cursos_temporarios_autocadastro):
                 with st.container(border=True):
@@ -389,15 +388,12 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
                         st.rerun()
             st.markdown("<p style='color: #10B981; font-weight: bold;'>⬇️ Adicione o próximo certificado na sequência abaixo:</p>", unsafe_allow_html=True)
         
-        # Inicializa o contador para controle e limpeza estável da barra de digitação
         if "limpar_input_chave" not in st.session_state:
             st.session_state.limpar_input_chave = 0
 
-        # Campos de entrada de dados controlados
         with st.container(border=True):
             col_add_c1, col_add_c2 = st.columns([0.6, 0.4])
             
-            # Key dinâmica baseada em contador: recria o widget em branco com segurança
             nome_curso_temp = col_add_c1.text_input(
                 "Nome do Curso Extra (Ex: NR-35, NR-10):", 
                 key=f"input_nome_extra_{st.session_state.limpar_input_chave}"
@@ -410,7 +406,6 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
                         "nome": nome_curso_temp.strip().upper(),
                         "validade": str(validade_curso_temp)
                     })
-                    # Incrementa o número para resetar o widget na próxima renderização
                     st.session_state.limpar_input_chave += 1
                     st.rerun()
                 else:
@@ -575,8 +570,8 @@ else:
 
         if st.session_state.id_editando: modal_editar_funcionario_isolado(st.session_state.id_editando, email_usuario_logado, dicionario_areas)
 
-        aba_dash, aba_fila_trabalhador, aba_cadastro, aba_matriz_trava, aba_config = st.tabs([
-            "📊 Dashboard Operacional", "📥 Fila de Admissão Digital", "➕ Novo Registro Individual", "📋 Matriz de NRs por Função", "🏗️ Infraestrutura / Áreas"
+        aba_dash, aba_fila_trabalhador, aba_cadastro, aba_cadastro_massa, aba_matriz_trava, aba_config = st.tabs([
+            "📊 Dashboard Operacional", "📥 Fila de Admissão Digital", "➕ Novo Registro Individual", "📥 Cadastro em Massa (Excel/CSV)", "📋 Matriz de NRs por Função", "🏗️ Infraestrutura / Áreas"
         ])
 
         def renderizar_grid_funcionarios(funcionarios_lista):
@@ -701,6 +696,82 @@ else:
                     if n_nome and n_cargo:
                         adicionar_funcionario(n_nome, n_cargo, str(n_vcurso), str(n_vaso), email_usuario_logado, opcoes_c[n_area])
                         st.success("Colaborador registrado com sucesso!"); st.rerun()
+
+        # =========================================================================
+        # 🔥 NOVA ABA: CADASTRO EM MASSA VIA EXCEL / CSV
+        # =========================================================================
+        with aba_cadastro_massa:
+            st.subheader("📥 Importação Coletiva de Colaboradores")
+            st.markdown("Adicione vários colaboradores de uma única vez fazendo o upload de uma planilha.")
+            
+            # Disponibiliza um modelo rápido para o usuário baixar e não errar as colunas
+            modelo_dados = {
+                "Nome Completo": ["João Silva Alves", "Maria Souza Santos"],
+                "Cargo": ["Soldador", "Montador de Andaime"],
+                "Validade Curso Base (AAAA-MM-DD)": ["2027-05-20", "2026-11-12"],
+                "Validade ASO (AAAA-MM-DD)": ["2027-01-15", "2026-08-30"]
+            }
+            df_modelo = pd.DataFrame(modelo_dados)
+            
+            buffer_excel = io.BytesIO()
+            with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
+                df_modelo.to_excel(writer, index=False, sheet_name='Sheet1')
+            
+            st.download_button(
+                label="📥 Baixar Planilha Modelo (Excel)",
+                data=buffer_excel.getvalue(),
+                file_name="modelo_alerta_safe.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+            st.markdown("---")
+            arquivo_planilha = st.file_uploader("Arraste seu arquivo Excel (.xlsx) ou CSV contendo a lista:", type=["xlsx", "csv"])
+            
+            opcoes_massa = {"Setor Geral": None}
+            for id_a, nome_a in lista_areas_cadastradas: opcoes_massa[nome_a] = id_a
+            setor_massa_selecionado = st.selectbox("Alocar todos estes novos registros no Setor:", list(opcoes_massa.keys()), key="setor_massa")
+            
+            if arquivo_planilha is not None:
+                try:
+                    if arquivo_planilha.name.endswith(".csv"):
+                        df_importado = pd.read_csv(arquivo_planilha)
+                    else:
+                        df_importado = pd.read_excel(arquivo_planilha)
+                        
+                    st.markdown("### 👀 Pré-visualização dos dados carregados:")
+                    st.dataframe(df_importado, use_container_width=True)
+                    
+                    if st.button("🚀 Confirmar Carga em Massa", type="primary", use_container_width=True):
+                        contador_sucesso = 0
+                        id_setor_importacao = opcoes_massa[setor_massa_selecionado]
+                        
+                        for index, row in df_importado.iterrows():
+                            # Remove espaços em branco extras dos cabeçalhos e valores
+                            nome_f = str(row.get("Nome Completo", "")).strip()
+                            cargo_f = str(row.get("Cargo", "")).strip()
+                            val_curso_f = str(row.get("Validade Curso Base (AAAA-MM-DD)", "")).strip()
+                            val_aso_f = str(row.get("Validade ASO (AAAA-MM-DD)", "")).strip()
+                            
+                            # Validação simples se os campos fundamentais não estão em branco
+                            if nome_f and cargo_f and nome_f != "nan" and cargo_f != "nan":
+                                # Garante formato de data limpo
+                                if " " in val_curso_f: val_curso_f = val_curso_f.split(" ")[0]
+                                if " " in val_aso_f: val_aso_f = val_aso_f.split(" ")[0]
+                                
+                                adicionar_funcionario(
+                                    nome=nome_f, 
+                                    cargo=cargo_f, 
+                                    validade_curso=val_curso_f, 
+                                    validade_aso=val_aso_f, 
+                                    usuario_email=email_usuario_logado, 
+                                    area_id=id_setor_importacao
+                                )
+                                contador_sucesso += 1
+                                
+                        st.success(f"🎉 Excelente! {contador_sucesso} novos colaboradores foram inseridos e homologados de uma vez só no banco de dados!")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Falha crítica ao ler arquivo. Verifique se os nomes das colunas são idênticos ao modelo. Detalhe: {e}")
 
         with aba_matriz_trava:
             st.subheader("📋 Configuração de Matriz de Requisitos Mandatórios")
