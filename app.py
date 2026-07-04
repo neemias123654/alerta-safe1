@@ -354,7 +354,6 @@ if "logado" not in st.session_state: st.session_state.logado = False
 if "dados_usuario" not in st.session_state: st.session_state.dados_usuario = None
 if "id_editando" not in st.session_state: st.session_state.id_editando = None
 if "cursos_temporarios_autocadastro" not in st.session_state: st.session_state.cursos_temporarios_autocadastro = []
-if "input_nome_extra_novo" not in st.session_state: st.session_state.input_nome_extra_novo = ""
 
 params = st.query_params
 
@@ -390,13 +389,18 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
                         st.rerun()
             st.markdown("<p style='color: #10B981; font-weight: bold;'>⬇️ Adicione o próximo certificado na sequência abaixo:</p>", unsafe_allow_html=True)
         
-        # Campos de entrada de dados controlados por estado estável
+        # Inicializa o contador para controle e limpeza estável da barra de digitação
+        if "limpar_input_chave" not in st.session_state:
+            st.session_state.limpar_input_chave = 0
+
+        # Campos de entrada de dados controlados
         with st.container(border=True):
             col_add_c1, col_add_c2 = st.columns([0.6, 0.4])
             
+            # Key dinâmica baseada em contador: recria o widget em branco com segurança
             nome_curso_temp = col_add_c1.text_input(
                 "Nome do Curso Extra (Ex: NR-35, NR-10):", 
-                key="input_nome_extra_novo"
+                key=f"input_nome_extra_{st.session_state.limpar_input_chave}"
             )
             validade_curso_temp = col_add_c2.date_input("Validade deste Certificado:", key="input_val_extra_novo")
             
@@ -406,8 +410,8 @@ if params.get("modo") == "auto_cadastro" and "empresa" in params:
                         "nome": nome_curso_temp.strip().upper(),
                         "validade": str(validade_curso_temp)
                     })
-                    # 💡 MODIFICAÇÃO ATUAL: Limpa a barra excluindo a string do estado interno antes de remontar a tela
-                    st.session_state.input_nome_extra_novo = ""
+                    # Incrementa o número para resetar o widget na próxima renderização
+                    st.session_state.limpar_input_chave += 1
                     st.rerun()
                 else:
                     st.warning("⚠️ Digite o nome do certificado antes de clicar em adicionar.")
@@ -541,7 +545,7 @@ else:
                         
                     if col_btn_block.button("🔴 Bloquear Acesso (Inadimplente)", use_container_width=True):
                         alterar_status_licenca(id_usuario_alt, 0, 0)
-                        st.error("Acesso bloqueado por falta de pagamento!")
+                        st.error("Acesso blocked por falta de pagamento!")
                         st.rerun()
             else: 
                 st.info("Nenhum cliente cadastrado no banco de dados até o momento.")
