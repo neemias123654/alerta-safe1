@@ -3,13 +3,13 @@ name: Deploy para DokeHost
 on:
   push:
     branches:
-      - principal # Bate exatamente com o nome da sua branch padrão
+      - principal
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Baixando o código
+      - name: Baixando o codigo
         uses: actions/checkout@v4
 
       - name: Enviando arquivos via SFTP para a DokeHost
@@ -21,4 +21,4 @@ jobs:
           protocol: sftp
           port: 22
           local-dir: ./
-          server-dir: /var/www/html/ # Pasta padrão do Ubuntu
+          server-dir: /var/www/html/
