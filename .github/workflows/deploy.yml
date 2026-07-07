@@ -22,3 +22,4 @@ jobs:
           port: 22
           local-dir: ./
           server-dir: /var/www/html/
+          force-dir: true 
