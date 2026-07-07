@@ -12,13 +12,12 @@ jobs:
       - name: Baixando o codigo
         uses: actions/checkout@v4
 
-      - name: Enviando arquivos para a DokeHost
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      - name: Enviando via SFTP Real
+        uses: appleboy/scp-action@v0.1.7
         with:
-          server: ${{ secrets.SFTP_SERVER }}
+          host: ${{ secrets.SFTP_SERVER }}
           username: ${{ secrets.SFTP_USERNAME }}
           password: ${{ secrets.SFTP_PASSWORD }}
-          protocol: ftp
-          port: 21
-          local-dir: ./
-          server-dir: ./
+          port: 22
+          source: "./*"
+          target: "/var/www/html/"
