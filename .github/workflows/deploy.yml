@@ -3,7 +3,7 @@ name: Deploy para DokeHost
 on:
   push:
     branches:
-      - principal
+      - main
 
 jobs:
   deploy:
