@@ -1,0 +1,24 @@
+name: Deploy para DokeHost
+
+on:
+  push:
+    branches:
+      - principal # Bate exatamente com o nome da sua branch padrão
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixando o código
+        uses: actions/checkout@v4
+
+      - name: Enviando arquivos via SFTP para a DokeHost
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.SFTP_SERVER }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          protocol: sftp
+          port: 22
+          local-dir: ./
+          server-dir: /var/www/html/ # Pasta padrão do Ubuntu para sites/aplicações
