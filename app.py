@@ -7,7 +7,7 @@ import qrcode
 from google import genai
 from google.genai import types
 
-# Configuração da página para ficar mais profissional
+# Configuração global da página para visual profissional e responsivo
 st.set_page_config(page_title="AlertaSafe Enterprise", page_icon="🛡️", layout="centered")
 
 # ===================================================================
@@ -56,6 +56,14 @@ def init_db():
     conn.close()
 
 init_db()
+
+# ===================================================================
+# --- SISTEMA DE PERSISTÊNCIA DE SESSÃO (PRESERVA F5) ---
+# ===================================================================
+if 'logado' not in st.session_state:
+    st.session_state['logado'] = False
+if 'usuario_atual' not in st.session_state:
+    st.session_state['usuario_atual'] = ""
 
 # ===================================================================
 # PARTE 1: ROTEADOR DE URL (TELA PÚBLICA AO ESCANEAR O QR CODE)
@@ -144,13 +152,8 @@ if "p" in query_params and query_params["p"] == "consultar":
     st.stop()
 
 # ===================================================================
-# PARTE 2: SISTEMA DE LOGIN E ANTE-TELA (MENU RETRÁTIL)
+# PARTE 2: SISTEMA DE LOGIN E ANTE-TELA (MENU RETRÁTIL NA SIDEBAR)
 # ===================================================================
-if 'logado' not in st.session_state:
-    st.session_state['logado'] = False
-if 'usuario_atual' not in st.session_state:
-    st.session_state['usuario_atual'] = ""
-
 if not st.session_state['logado']:
     st.sidebar.title("📌 Menu de Navegação")
     menu_inicial = st.sidebar.radio(
@@ -158,6 +161,7 @@ if not st.session_state['logado']:
         ["🏠 Início / Sobre a Empresa", "📞 Contato", "🔐 Acessar o Sistema", "✨ Criar Nova Conta"]
     )
     
+    # --- ABA 1: APRESENTAÇÃO ---
     if menu_inicial == "🏠 Início / Sobre a Empresa":
         st.markdown("<h1 style='text-align: center;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
         st.write("---")
@@ -174,6 +178,7 @@ if not st.session_state['logado']:
         👈 *Para acessar o painel ou criar sua conta, clique na setinha ou no quadradinho no canto superior esquerdo e selecione a opção desejada.*
         """)
         
+    # --- ABA 2: SUPORTE ---
     elif menu_inicial == "📞 Contato":
         st.title("📞 Entre em Contato Conosco")
         st.write("---")
@@ -184,6 +189,7 @@ if not st.session_state['logado']:
         * 🕒 **Atendimento:** Segunda a Sexta, das 08h às 18h.
         """)
         
+    # --- ABA 3: LOGIN (COM CAPTURA DO TECLADO 'ENTER') ---
     elif menu_inicial == "🔐 Acessar o Sistema":
         st.title("🔐 Login de Clientes / Gestores")
         st.write("---")
@@ -194,6 +200,7 @@ if not st.session_state['logado']:
             botao_entrar = st.form_submit_button("Entrar no Painel", use_container_width=True)
             
         if botao_entrar:
+            # Validação prioritária do Superusuário Dev Mestre
             if input_user == EMAIL_MASTER_DEV and input_pass == SENHA_MESTRE_DEV:
                 st.session_state['logado'] = True
                 st.session_state['usuario_atual'] = "Dev Mestre 🛠️"
@@ -207,8 +214,9 @@ if not st.session_state['logado']:
                 
                 if resultado_user:
                     status_atual = resultado_user[0]
+                    # Trava automática para faturamento bloqueado ou pendentes
                     if status_atual == 'bloqueado' or status_atual == 'faturamento_bloqueado':
-                        st.error("🔒 Seu acesso ao painel está temporariamente suspenso ou aguardando liberação. Entre em contato com o suporte técnico.")
+                        st.error("🔒 Seu acesso ao painel está temporariamente suspenso ou aguardando liberação. Entre em contato com o suporte técnico para regularizar seu faturamento.")
                     else:
                         st.session_state['logado'] = True
                         st.session_state['usuario_atual'] = input_user
@@ -216,6 +224,7 @@ if not st.session_state['logado']:
                 else:
                     st.error("❌ Usuário ou senha incorretos.")
                 
+    # --- ABA 4: CADASTRO DE CLIENTE (COM SUPORTE A ENTER) ---
     elif menu_inicial == "✨ Criar Nova Conta":
         st.title("✨ Solicitar Acesso ao Sistema")
         st.write("---")
@@ -246,7 +255,7 @@ if not st.session_state['logado']:
     st.stop()
 
 # ===================================================================
-# PARTE 3: FUNÇÃO DA INTELIGÊNCIA ARTIFICIAL (GEMINI)
+# PARTE 3: FUNÇÃO DA INTELIGÊNCIA ARTIFICIAL (GEMINI SDK)
 # ===================================================================
 def analisar_certificado_com_ia(arquivo_bytes, mime_type):
     if GEMINI_API_KEY == "SUA_API_KEY_DO_GEMINI_AQUI":
@@ -267,7 +276,7 @@ def analisar_certificado_com_ia(arquivo_bytes, mime_type):
         return {"erro": f"Falha na análise da IA: {str(e)}"}
 
 # ===================================================================
-# PARTE 4: PAINÉIS DE NAVEGAÇÃO INTERNOS (CLIENTE vs DEV MESTRE)
+# PARTE 4: AMBIENTES LOGADOS INTERNOS (FILTRADOS POR PERFIL)
 # ===================================================================
 st.sidebar.title(f"👤 {st.session_state['usuario_atual']}")
 if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
@@ -277,69 +286,128 @@ if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
 
 st.sidebar.write("---")
 
-# --- SEPARAÇÃO COMPLETA: SE FOR O DEV MESTRE ---
+# -------------------------------------------------------------------
+# --- [PERFIL 1] PAINEL DE CONTROLE EXCLUSIVO DO DEV MESTRE ---
+# -------------------------------------------------------------------
 if st.session_state['usuario_atual'] == "Dev Mestre 🛠️":
     st.sidebar.title("🛠️ Painel do Desenvolvedor")
-    opcao_dev = st.sidebar.radio("Selecione uma Função:", ["Controle de Clientes"])
+    opcao_dev = st.sidebar.radio("Selecione uma Função:", ["📊 Visão Geral & Métricas", "⚙️ Gerenciamento de Clientes", "🚨 Manutenção do Banco"])
     
-    if opcao_dev == "Controle de Clientes":
-        st.title("⚙️ Controle de Acesso e Clientes")
+    # DEV FUNC 1: INDICADORES E MÉTRICAS GERAIS DA INFRAESTRUTURA
+    if opcao_dev == "📊 Visão Geral & Métricas":
+        st.title("📊 Indicadores Globais do Ecossistema")
         st.write("---")
         
         conn = sqlite3.connect('alerta_safe.db')
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM usuarios")
-        total_clientes = cursor.fetchone()[0]
+        total_cli = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM funcionarios")
+        total_func_global = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM certificados")
+        total_cert_global = cursor.fetchone()[0]
+        conn.close()
+        
+        m1, m2, m3 = st.columns(3)
+        with m1: st.metric("Empresas Clientes", total_cli)
+        with m2: st.metric("Funcionários Cadastrados", total_func_global)
+        with m3: st.metric("Certificados Lidos por IA", total_cert_global)
+        
+        st.write("---")
+        st.info("💡 Estatísticas globais consolidadas em tempo real diretamente das tabelas do SQLite na sua VPS.")
+
+    # DEV FUNC 2: TABELA DE GERENCIAMENTO DE CLIENTES (SEM DUPLICAÇÃO DE LINHA)
+    elif opcao_dev == "⚙️ Gerenciamento de Clientes":
+        st.title("⚙️ Controle de Acesso e Clientes")
+        st.write("---")
+        
+        conn = sqlite3.connect('alerta_safe.db')
+        cursor = conn.cursor()
         cursor.execute("SELECT id, usuario, status FROM usuarios")
         lista_usuarios = cursor.fetchall()
         conn.close()
         
-        st.metric(label="Total de Clientes Cadastrados", value=total_clientes)
-        st.write("---")
+        aba_todos, aba_pendentes, aba_financeiro = st.tabs(["📋 Todos", "🔴 Novos Cadastros", "💳 Bloqueio Financeiro"])
         
-        col_user, col_status, col_acao = st.columns([3, 2, 3])
-        with col_user: st.markdown("**Usuário / Cliente**")
-        with col_status: st.markdown("**Status Atual**")
-        with col_acao: st.markdown("**Gerenciar Acesso**")
+        def renderizar_tabela_dev(usuarios_filtrados):
+            if not usuarios_filtrados:
+                st.caption("Nenhum cliente localizado nesta categoria.")
+                return
             
-        st.write("") 
+            col_user, col_status, col_acao = st.columns([3, 2, 2])
+            with col_user: st.markdown("**Usuário / Cliente**")
+            with col_status: st.markdown("**Status Atual**")
+            with col_acao: st.markdown("**Ação Corretiva**")
+            st.write("") 
 
-        for u_id, u_nome, u_status in lista_usuarios:
-            c1, c2, c3 = st.columns([3, 2, 3])
-            
-            with c1:
-                st.write(u_nome)
-                
-            with c2:
-                if u_status == 'bloqueado':
-                    st.markdown("<span style='color:#ff4b4b; font-weight:bold;'>🔴 Pendente / Bloqueado</span>", unsafe_allow_html=True)
-                elif u_status == 'faturamento_bloqueado':
-                    st.markdown("<span style='color:#ffaa00; font-weight:bold;'>⚠️ Bloqueio Financeiro</span>", unsafe_allow_html=True)
-                else:
-                    st.markdown("<span style='color:#00cc66; font-weight:bold;'>🟢 Ativo / Permitido</span>", unsafe_allow_html=True)
-                    
-            with c3:
-                # Se o cliente estiver bloqueado por qualquer motivo, exibe o botão de permitir/confirmar cadastro
-                if u_status != 'aprovado':
-                    if st.button("Aprovar Cadastro ✅", key=f"perm_{u_id}", use_container_width=True):
-                        conn = sqlite3.connect('alerta_safe.db')
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE usuarios SET status = 'aprovado' WHERE id = ?", (u_id,))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
-                
-                # Se o cliente estiver ativo ou apenas pendente, dá a opção de bloquear por falta de pagamento
-                if u_status != 'faturamento_bloqueado':
-                    if st.button("Bloquear Pagamento 💳", key=f"pay_{u_id}", use_container_width=True):
-                        conn = sqlite3.connect('alerta_safe.db')
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE usuarios SET status = 'faturamento_bloqueado' WHERE id = ?", (u_id,))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
+            for u_id, u_nome, u_status in usuarios_filtrados:
+                c1, c2, c3 = st.columns([3, 2, 2])
+                with c1: st.write(u_nome)
+                with c2:
+                    if u_status == 'bloqueado':
+                        st.markdown("<span style='color:#ff4b4b; font-weight:bold;'>🔴 Pendente / Bloqueado</span>", unsafe_allow_html=True)
+                    elif u_status == 'faturamento_bloqueado':
+                        st.markdown("<span style='color:#ffaa00; font-weight:bold;'>⚠️ Bloqueio Financeiro</span>", unsafe_allow_html=True)
+                    else:
+                        st.markdown("<span style='color:#00cc66; font-weight:bold;'>🟢 Ativo / Permitido</span>", unsafe_allow_html=True)
+                        
+                with c3:
+                    # Renderização condicional lógica para evitar duplicações de botões na linha
+                    if u_status == 'bloqueado':
+                        if st.button("Aprovar Cadastro ✅", key=f"perm_{u_id}", use_container_width=True):
+                            conn = sqlite3.connect('alerta_safe.db')
+                            cursor = conn.cursor()
+                            cursor.execute("UPDATE usuarios SET status = 'aprovado' WHERE id = ?", (u_id,))
+                            conn.commit()
+                            conn.close()
+                            st.rerun()
+                            
+                    elif u_status == 'faturamento_bloqueado':
+                        if st.button("Liberar Acesso 🟢", key=f"lib_fin_{u_id}", use_container_width=True):
+                            conn = sqlite3.connect('alerta_safe.db')
+                            cursor = conn.cursor()
+                            cursor.execute("UPDATE usuarios SET status = 'aprovado' WHERE id = ?", (u_id,))
+                            conn.commit()
+                            conn.close()
+                            st.rerun()
+                            
+                    elif u_status == 'aprovado':
+                        if st.button("Bloquear Conta 💳", key=f"pay_{u_id}", use_container_width=True):
+                            conn = sqlite3.connect('alerta_safe.db')
+                            cursor = conn.cursor()
+                            cursor.execute("UPDATE usuarios SET status = 'faturamento_bloqueado' WHERE id = ?", (u_id,))
+                            conn.commit()
+                            conn.close()
+                            st.rerun()
 
-# --- SE FOR UM CLIENTE OPERACIONAL COMUM ---
+        with aba_todos:
+            renderizar_tabela_dev(lista_usuarios)
+        with aba_pendentes:
+            renderizar_tabela_dev([u for u in lista_usuarios if u[2] == 'bloqueado'])
+        with aba_financeiro:
+            renderizar_tabela_dev([u for u in lista_usuarios if u[2] == 'faturamento_bloqueado'])
+
+    # DEV FUNC 3: MANUTENÇÃO TÉCNICA CRÍTICA
+    elif opcao_dev == "🚨 Manutenção do Banco":
+        st.title("🚨 Ferramentas de Purga Crítica")
+        st.write("---")
+        st.warning("⚠️ Cuidado: As ações executadas abaixo realizam drops/deletes permanentes no SQLite.")
+        
+        trava_seguranca = st.checkbox("Estou ciente e desejo liberar os gatilhos de remoção em lote.")
+        
+        if trava_seguranca:
+            if st.button("🗑️ Deletar Todos os Clientes Pendentes do Banco"):
+                conn = sqlite3.connect('alerta_safe.db')
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM usuarios WHERE status = 'bloqueado'")
+                conn.commit()
+                conn.close()
+                st.success("Tabela higienizada. Contas pendentes deletadas.")
+                st.rerun()
+
+# -------------------------------------------------------------------
+# --- [PERFIL 2] PAINEL DE NAVEGAÇÃO INTERNO DOS CLIENTES OPERACIONAIS ---
+# -------------------------------------------------------------------
 else:
     st.sidebar.title("Navegação")
     opcao = st.sidebar.radio("Selecione uma Tela", ["Painel Geral", "Cadastrar Funcionário", "Leitura de Certificados (IA)", "Gerenciar Crachás / QR Codes"])
@@ -350,7 +418,7 @@ else:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM funcionarios")
         total_func = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM certificados")
+        cursor.execute("SELECT COUNT(*) FROM certificates")
         total_cert = cursor.fetchone()[0]
         conn.close()
         
