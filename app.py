@@ -7,6 +7,9 @@ import qrcode
 from google import genai
 from google.genai import types
 
+# Configuração da página para ficar mais profissional
+st.set_page_config(page_title="AlertaSafe Enterprise", page_icon="🛡️", layout="centered")
+
 # ===================================================================
 # --- CONFIGURAÇÕES MASTER DO DESENVOLVEDOR ---
 # ===================================================================
@@ -42,7 +45,7 @@ def init_db():
             FOREIGN KEY (id_funcionario) REFERENCES funcionarios(id)
         )
     ''')
-    # NOVA TABELA: Usuários do sistema (Clientes)
+    # Tabela de Usuários do sistema (Clientes)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,23 +147,57 @@ if "p" in query_params and query_params["p"] == "consultar":
     st.stop()
 
 # ===================================================================
-# PARTE 2: SISTEMA DE LOGIN E AUTO-CADASTRO (BLOQUEADO POR PADRÃO)
+# PARTE 2: SISTEMA DE LOGIN E ANTE-TELA (MENU NO CANTO SUPERIOR ESQUERDO)
 # ===================================================================
 if 'logado' not in st.session_state:
     st.session_state['logado'] = False
 
 if not st.session_state['logado']:
-    st.title("🛡️ AlertaSafe Enterprise")
+    # Configurando as opções do menu na barra lateral esquerda (Menu Retrátil)
+    st.sidebar.title("📌 Menu de Navegação")
+    menu_inicial = st.sidebar.radio(
+        "Ir para:",
+        ["🏠 Início / Sobre a Empresa", "📞 Contato", "🔐 Acessar o Sistema", "✨ Criar Nova Conta"]
+    )
     
-    aba_login, aba_cadastro = st.tabs(["🔐 Acessar Sistema", "✨ Criar Nova Conta"])
-    
-    # --- ABA: EFETUAR LOGIN ---
-    with aba_login:
-        st.subheader("Login de Clientes / Gestores")
+    # --- ABA 1: INÍCIO / SOBRE A EMPRESA ---
+    if menu_inicial == "🏠 Início / Sobre a Empresa":
+        st.markdown("<h1 style='text-align: center;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
+        st.write("---")
+        
+        st.markdown("""
+        ### O que é o AlertaSafe?
+        O **AlertaSafe** é uma plataforma inteligente e automatizada de gestão de conformidade em segurança do trabalho. 
+        Nosso foco principal é garantir que nenhuma operação seja realizada por colaboradores com treinamentos ou Normas Regulamentadoras (NRs) vencidas.
+        
+        ### Como funciona?
+        1. **Cadastro Inteligente:** Você faz o upload dos certificados dos seus funcionários.
+        2. **Leitura por Inteligência Artificial:** Nossa IA (Gemini) analisa o documento e extrai o nome, curso e datas automaticamente.
+        3. **Crachá com QR Code:** O sistema gera um QR Code exclusivo para cada colaborador.
+        4. **Validação Instantânea:** Qualquer fiscal ou supervisor pode escanear o crachá no campo de trabalho para checar em tempo real se o profissional está regularizado para a atividade.
+        
+        👈 *Para acessar o painel ou criar sua conta, clique na setinha ou no quadradinho no canto superior esquerdo e selecione a opção desejada.*
+        """)
+        
+    # --- ABA 2: CONTATO ---
+    elif menu_inicial == "📞 Contato":
+        st.title("📞 Entre em Contato Conosco")
+        st.write("---")
+        st.markdown("""
+        Se você tiver dúvidas, problemas técnicos ou desejar planos customizados para grandes empresas, fale diretamente com o nosso suporte oficial:
+        
+        * ✉️ **E-mail:** neemias123654@gmail.com
+        * 🕒 **Atendimento:** Segunda a Sexta, das 08h às 18h.
+        """)
+        
+    # --- ABA 3: EFETUAR LOGIN ---
+    elif menu_inicial == "🔐 Acessar o Sistema":
+        st.title("🔐 Login de Clientes / Gestores")
+        st.write("---")
         input_user = st.text_input("Usuário", key="login_user")
         input_pass = st.text_input("Senha", type="password", key="login_pass")
         
-        if st.button("Entrar no Painel"):
+        if st.button("Entrar no Painel", use_container_width=True):
             conn = sqlite3.connect('alerta_safe.db')
             cursor = conn.cursor()
             cursor.execute("SELECT status FROM usuarios WHERE usuario = ? AND senha = ?", (input_user, input_pass))
@@ -178,15 +215,16 @@ if not st.session_state['logado']:
             else:
                 st.error("❌ Usuário ou senha incorretos.")
                 
-    # --- ABA: AUTO-CADASTRO DO CLIENTE ---
-    with aba_cadastro:
-        st.subheader("Solicitar Acesso ao Sistema")
+    # --- ABA 4: AUTO-CADASTRO DO CLIENTE ---
+    elif menu_inicial == "✨ Criar Nova Conta":
+        st.title("✨ Solicitar Acesso ao Sistema")
+        st.write("---")
         st.write("Preencha os dados abaixo. Seu usuário ficará em análise para liberação.")
         novo_user = st.text_input("Escolha um Nome de Usuário (Ex: nome da empresa ou e-mail)", key="cad_user")
         nova_pass = st.text_input("Crie uma Senha Segura", type="password", key="cad_pass")
-        confirma_pass = st.text_input("Confirme a sua Senha", type="password", key="cad_pass_conf")
+        confirma_pass = st.text_input("Confirme a sua Senha", type="password", key="cad_pass_conf") # CHAVE CORRIGIDA AQUI
         
-        if st.button("Finalizar Meu Cadastro"):
+        if st.button("Finalizar Meu Cadastro", use_container_width=True):
             if novo_user and nova_pass:
                 if nova_pass != confirma_pass:
                     st.error("❌ As senhas não coincidem!")
@@ -194,7 +232,6 @@ if not st.session_state['logado']:
                     try:
                         conn = sqlite3.connect('alerta_safe.db')
                         cursor = conn.cursor()
-                        # Cadastra com o status inicial fixo em 'bloqueado'
                         cursor.execute("INSERT INTO usuarios (usuario, senha, status) VALUES (?, ?, 'bloqueado')", (novo_user, nova_pass))
                         conn.commit()
                         conn.close()
@@ -204,7 +241,7 @@ if not st.session_state['logado']:
             else:
                 st.warning("Por favor, preencha todos os campos do formulário.")
                 
-    st.stop() # Não deixa passar para o sistema enquanto não logar
+    st.stop() # Não deixa passar para as funções internas enquanto não logar
 
 # ===================================================================
 # PARTE 3: FUNÇÃO DA INTELIGÊNCIA ARTIFICIAL (GEMINI)
@@ -220,7 +257,7 @@ def analisar_certificado_com_ia(arquivo_bytes, mime_type):
             "Extraia o nome completo do funcionario, nome exato do curso (ex: NR-35, NR-10), "
             "data de emissao e data de validade no formato AAAA-MM-DD. Se a validade não estiver clara no documento, "
             "calcule-a utilizando a regra padrão brasileira da NR (ex: NR-35 são 2 anos; NR-33 são 1 ano) baseado na data de emissão. "
-            "Retorne estritamente um objeto JSON puro com as seguintes chaves: "
+            "Retorne estritamente um objecto JSON puro com as seguintes chaves: "
             "nome_funcionario, nome_curso, data_emissao, data_validade. Não retorne blocos markdown nem texto adicional."
         )
         response = client.models.generate_content(model='gemini-2.5-flash', contents=[part_arquivo, prompt])
@@ -254,7 +291,6 @@ if opcao == "Painel Geral":
     st.metric("Total de Certificados Ativos no Sistema", total_cert)
 
 elif opcao == "Cadastrar Funcionário":
-    # (Código de Cadastro de Funcionário mantido de forma idêntica)
     st.subheader("👤 Cadastro de Colaboradores")
     with st.form("form_func"):
         nome = st.text_input("Nome Completo")
@@ -276,7 +312,6 @@ elif opcao == "Cadastrar Funcionário":
                 st.warning("Preencha os campos obrigatórios (Nome e CPF).")
 
 elif opcao == "Leitura de Certificados (IA)":
-    # (Código de Análise IA mantido de forma idêntica)
     st.subheader("🤖 Cadastro Inteligente com Inteligência Artificial")
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
@@ -323,7 +358,6 @@ elif opcao == "Leitura de Certificados (IA)":
                         del st.session_state['ia_resultado']
 
 elif opcao == "Gerenciar Crachás / QR Codes":
-    # (Código de Geração de QR Code mantido de forma idêntica)
     st.subheader("🪪 Emissão de Crachás Digitais Inteligentes")
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
