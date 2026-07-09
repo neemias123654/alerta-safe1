@@ -24,7 +24,6 @@ EMAIL_MASTER_DEV = "neemias123654@gmail.com"   # E-mail mestre para acesso diret
 def init_db():
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    # Tabela de funcionários
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS funcionarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +33,6 @@ def init_db():
             whatsapp TEXT
         )
     ''')
-    # Tabela de certificados vinculados por id_funcionario
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS certificados (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +44,6 @@ def init_db():
             FOREIGN KEY (id_funcionario) REFERENCES funcionarios(id)
         )
     ''')
-    # Tabela de Usuários do sistema (Clientes)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +70,6 @@ if "p" in query_params and query_params["p"] == "consultar":
 
     conn = sqlite3.connect('alerta_safe.db')
     cursor = conn.cursor()
-    
     cursor.execute("SELECT nome, cargo FROM funcionarios WHERE id = ?", (id_func,))
     func = cursor.fetchone()
     
@@ -148,8 +144,9 @@ if "p" in query_params and query_params["p"] == "consultar":
     st.stop()
 
 # ===================================================================
-# PARTE 2: SISTEMA DE LOGIN E ANTE-TELA (MENU NO CANTO SUPERIOR ESQUERDO)
+# PARTE 2: SISTEMA DE LOGIN E ANTE-TELA (MENU RETRÁTIL)
 # ===================================================================
+# Mantém a sessão ativa mesmo navegando pelas abas internas do painel
 if 'logado' not in st.session_state:
     st.session_state['logado'] = False
 
@@ -188,14 +185,21 @@ if not st.session_state['logado']:
         * 🕒 **Atendimento:** Segunda a Sexta, das 08h às 18h.
         """)
         
-    # --- ABA 3: EFETUAR LOGIN ---
+    # --- ABA 3: EFETUAR LOGIN (COM SUPORTE A ENTER POR FORMULÁRIO) ---
     elif menu_inicial == "🔐 Acessar o Sistema":
         st.title("🔐 Login de Clientes / Gestores")
         st.write("---")
-        input_user = st.text_input("Usuário", key="login_user")
-        input_pass = st.text_input("Senha", type="password", key="login_pass")
         
-        if st.button("Entrar no Painel", use_container_width=True):
+        # Criando um formulário HTML nativo do Streamlit para capturar a tecla ENTER automaticamente
+        with st.form("form_login"):
+            input_user = st.text_input("Usuário / E-mail")
+            input_pass = st.text_input("Senha", type="password")
+            
+            # Botão de submissão do formulário
+            botao_entrar = st.form_submit_button("Entrar no Painel", use_container_width=True)
+            
+        if botao_entrar:
+            # Validação do Superusuário Dev Mestre
             if input_user == EMAIL_MASTER_DEV and input_pass == SENHA_MESTRE_DEV:
                 st.session_state['logado'] = True
                 st.session_state['usuario_atual'] = "Dev Mestre 🛠️"
@@ -218,15 +222,18 @@ if not st.session_state['logado']:
                 else:
                     st.error("❌ Usuário ou senha incorretos.")
                 
-    # --- ABA 4: AUTO-CADASTRO ---
+    # --- ABA 4: AUTO-CADASTRO (COM SUPORTE A ENTER) ---
     elif menu_inicial == "✨ Criar Nova Conta":
         st.title("✨ Solicitar Acesso ao Sistema")
         st.write("---")
-        novo_user = st.text_input("Escolha um Nome de Usuário (Ex: nome da empresa ou e-mail)", key="cad_user")
-        nova_pass = st.text_input("Crie uma Senha Segura", type="password", key="cad_pass")
-        confirma_pass = st.text_input("Confirme a sua Senha", type="password", key="cad_pass_conf")
         
-        if st.button("Finalizar Meu Cadastro", use_container_width=True):
+        with st.form("form_cadastro"):
+            novo_user = st.text_input("Escolha um Nome de Usuário (Ex: nome da empresa ou e-mail)")
+            nova_pass = st.text_input("Crie uma Senha Segura", type="password")
+            confirma_pass = st.text_input("Confirme a sua Senha", type="password")
+            botao_cadastrar = st.form_submit_button("Finalizar Meu Cadastro", use_container_width=True)
+        
+        if botao_cadastrar:
             if novo_user and nova_pass:
                 if nova_pass != confirma_pass:
                     st.error("❌ As senhas não coincidem!")
@@ -257,10 +264,9 @@ def analisar_certificado_com_ia(arquivo_bytes, mime_type):
         prompt = (
             "Analise o documento anexado (certificado de curso técnico ou SMS). "
             "Extraia o nome completo do funcionario, nome exato do curso (ex: NR-35, NR-10), "
-            "data de emissao e data de validade no formato AAAA-MM-DD. Se a validade não estiver clara no documento, "
-            "calcule-a utilizando a regra padrão brasileira da NR (ex: NR-35 são 2 anos; NR-33 são 1 ano) baseado na data de emissão. "
+            "data de emissao e data de validade no formato AAAA-MM-DD. "
             "Retorne estritamente um objecto JSON puro com as seguintes chaves: "
-            "nome_funcionario, nome_curso, data_emissao, data_validade. Não retorne blocos markdown nem texto adicional."
+            "nome_funcionario, nome_curso, data_emissao, data_validade."
         )
         response = client.models.generate_content(model='gemini-2.5-flash', contents=[part_arquivo, prompt])
         return json.loads(response.text.strip())
@@ -383,56 +389,40 @@ elif opcao == "Gerenciar Crachás / QR Codes":
                 st.image(byte_im, caption="QR Code pronto para crachá", width=150)
                 st.download_button(label=f"📥 Baixar imagem do QR Code", data=byte_im, file_name=f"qrcode_funcionario_{f_id}.png", mime="image/png")
 
-# ===================================================================
-# ⚙️ PAINEL DO DEV ATUALIZADO (MAIS OBJETIVO E LIMPO) ⚙️
-# ===================================================================
 elif opcao == "⚙️ Painel do Dev (Aprovações)":
     st.title("⚙️ Controle de Clientes")
     st.write("---")
     
-    senha_dev = st.text_input("Digite a Senha Mestre do Desenvolvedor:", type="password")
+    with st.form("form_dev"):
+        senha_dev = st.text_input("Digite a Senha Mestre do Desenvolvedor:", type="password")
+        submeter_dev = st.form_submit_button("Desbloquear Painel")
     
-    if senha_dev == SENHA_MESTRE_DEV:
+    if senha_dev == SENHA_MESTRE_DEV or st.session_state.get('dev_autenticado', False):
+        st.session_state['dev_autenticado'] = True
         conn = sqlite3.connect('alerta_safe.db')
         cursor = conn.cursor()
-        
-        # Coleta a quantidade de clientes cadastrados
         cursor.execute("SELECT COUNT(*) FROM usuarios")
         total_clientes = cursor.fetchone()[0]
-        
-        # Puxa a lista completa de usuários
         cursor.execute("SELECT id, usuario, status FROM usuarios")
         lista_usuarios = cursor.fetchall()
         conn.close()
         
-        # Métrica limpa no topo
         st.metric(label="Clientes Cadastrados", value=total_clientes)
         st.write("---")
         
-        # Cabeçalho da listagem objetiva
         col_user, col_status, col_acao = st.columns([3, 2, 2])
-        with col_user:
-            st.markdown("**Usuário / Cliente**")
-        with col_status:
-            st.markdown("**Status Atual**")
-        with col_acao:
-            st.markdown("**Ação**")
+        with col_user: st.markdown("**Usuário / Cliente**")
+        with col_status: st.markdown("**Status Atual**")
+        with col_acao: st.markdown("**Ação**")
             
-        st.write("") # Espaçador
-
-        # Loop direto pelos usuários
         for u_id, u_nome, u_status in lista_usuarios:
             c1, c2, c3 = st.columns([3, 2, 2])
-            
-            with c1:
-                st.write(u_nome)
-                
+            with c1: st.write(u_nome)
             with c2:
                 if u_status == 'bloqueado':
                     st.markdown("<span style='color:red; font-weight:bold;'>🔴 Bloqueado</span>", unsafe_allow_html=True)
                 else:
                     st.markdown("<span style='color:green; font-weight:bold;'>🟢 Permitido</span>", unsafe_allow_html=True)
-                    
             with c3:
                 if u_status == 'bloqueado':
                     if st.button("Permitir Acesso", key=f"perm_{u_id}", use_container_width=True):
@@ -450,6 +440,5 @@ elif opcao == "⚙️ Painel do Dev (Aprovações)":
                         conn.commit()
                         conn.close()
                         st.rerun()
-                        
     elif senha_dev != "":
         st.error("❌ Senha Mestre do Dev incorreta.")
