@@ -146,9 +146,10 @@ if "p" in query_params and query_params["p"] == "consultar":
 # ===================================================================
 # PARTE 2: SISTEMA DE LOGIN E ANTE-TELA (MENU RETRÁTIL)
 # ===================================================================
-# Mantém a sessão ativa mesmo navegando pelas abas internas do painel
 if 'logado' not in st.session_state:
     st.session_state['logado'] = False
+if 'usuario_atual' not in st.session_state:
+    st.session_state['usuario_atual'] = ""
 
 if not st.session_state['logado']:
     st.sidebar.title("📌 Menu de Navegação")
@@ -157,7 +158,6 @@ if not st.session_state['logado']:
         ["🏠 Início / Sobre a Empresa", "📞 Contato", "🔐 Acessar o Sistema", "✨ Criar Nova Conta"]
     )
     
-    # --- ABA 1: INÍCIO ---
     if menu_inicial == "🏠 Início / Sobre a Empresa":
         st.markdown("<h1 style='text-align: center;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
         st.write("---")
@@ -174,7 +174,6 @@ if not st.session_state['logado']:
         👈 *Para acessar o painel ou criar sua conta, clique na setinha ou no quadradinho no canto superior esquerdo e selecione a opção desejada.*
         """)
         
-    # --- ABA 2: CONTATO ---
     elif menu_inicial == "📞 Contato":
         st.title("📞 Entre em Contato Conosco")
         st.write("---")
@@ -185,21 +184,16 @@ if not st.session_state['logado']:
         * 🕒 **Atendimento:** Segunda a Sexta, das 08h às 18h.
         """)
         
-    # --- ABA 3: EFETUAR LOGIN (COM SUPORTE A ENTER POR FORMULÁRIO) ---
     elif menu_inicial == "🔐 Acessar o Sistema":
         st.title("🔐 Login de Clientes / Gestores")
         st.write("---")
         
-        # Criando um formulário HTML nativo do Streamlit para capturar a tecla ENTER automaticamente
         with st.form("form_login"):
             input_user = st.text_input("Usuário / E-mail")
             input_pass = st.text_input("Senha", type="password")
-            
-            # Botão de submissão do formulário
             botao_entrar = st.form_submit_button("Entrar no Painel", use_container_width=True)
             
         if botao_entrar:
-            # Validação do Superusuário Dev Mestre
             if input_user == EMAIL_MASTER_DEV and input_pass == SENHA_MESTRE_DEV:
                 st.session_state['logado'] = True
                 st.session_state['usuario_atual'] = "Dev Mestre 🛠️"
@@ -213,8 +207,8 @@ if not st.session_state['logado']:
                 
                 if resultado_user:
                     status_atual = resultado_user[0]
-                    if status_atual == 'bloqueado':
-                        st.error("🔒 Sua conta foi criada com sucesso, mas está **AGUARDANDO LIBERAÇÃO**. Tente novamente mais tarde.")
+                    if status_atual == 'bloqueado' or status_atual == 'faturamento_bloqueado':
+                        st.error("🔒 Seu acesso ao painel está temporariamente suspenso ou aguardando liberação. Entre em contato com o suporte técnico.")
                     else:
                         st.session_state['logado'] = True
                         st.session_state['usuario_atual'] = input_user
@@ -222,7 +216,6 @@ if not st.session_state['logado']:
                 else:
                     st.error("❌ Usuário ou senha incorretos.")
                 
-    # --- ABA 4: AUTO-CADASTRO (COM SUPORTE A ENTER) ---
     elif menu_inicial == "✨ Criar Nova Conta":
         st.title("✨ Solicitar Acesso ao Sistema")
         st.write("---")
@@ -274,131 +267,25 @@ def analisar_certificado_com_ia(arquivo_bytes, mime_type):
         return {"erro": f"Falha na análise da IA: {str(e)}"}
 
 # ===================================================================
-# PARTE 4: PAINEL ADMINISTRATIVO INTERNO (SISTEMA DE GESTÃO)
+# PARTE 4: PAINÉIS DE NAVEGAÇÃO INTERNOS (CLIENTE vs DEV MESTRE)
 # ===================================================================
 st.sidebar.title(f"👤 {st.session_state['usuario_atual']}")
-if st.sidebar.button("🚪 Sair do Sistema"):
+if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
     st.session_state['logado'] = False
+    st.session_state['usuario_atual'] = ""
     st.rerun()
 
 st.sidebar.write("---")
-st.sidebar.title("Navegação")
-opcao = st.sidebar.radio("Selecione uma Tela", ["Painel Geral", "Cadastrar Funcionário", "Leitura de Certificados (IA)", "Gerenciar Crachás / QR Codes", "⚙️ Painel do Dev (Aprovações)"])
 
-if opcao == "Painel Geral":
-    st.subheader("📊 Status de Conformidade Operacional")
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM funcionarios")
-    total_func = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM certificados")
-    total_cert = cursor.fetchone()[0]
-    conn.close()
+# --- SEPARAÇÃO COMPLETA: SE FOR O DEV MESTRE ---
+if st.session_state['usuario_atual'] == "Dev Mestre 🛠️":
+    st.sidebar.title("🛠️ Painel do Desenvolvedor")
+    opcao_dev = st.sidebar.radio("Selecione uma Função:", ["Controle de Clientes"])
     
-    st.metric("Total de Colaboradores Cadastrados", total_func)
-    st.metric("Total de Certificados Ativos no Sistema", total_cert)
-
-elif opcao == "Cadastrar Funcionário":
-    st.subheader("👤 Cadastro de Colaboradores")
-    with st.form("form_func"):
-        nome = st.text_input("Nome Completo")
-        cpf = st.text_input("CPF")
-        cargo = st.text_input("Cargo / Função")
-        whatsapp = st.text_input("WhatsApp (com DDD)")
-        if st.form_submit_button("Salvar Colaborador"):
-            if nome and cpf:
-                try:
-                    conn = sqlite3.connect('alerta_safe.db')
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO funcionarios (nome, cpf, cargo, whatsapp) VALUES (?, ?, ?, ?)", (nome, cpf, cargo, whatsapp))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"✅ {nome} cadastrado com sucesso!")
-                except sqlite3.IntegrityError:
-                    st.error("❌ Este CPF já está cadastrado no sistema.")
-            else:
-                st.warning("Preencha os campos obrigatórios (Nome e CPF).")
-
-elif opcao == "Leitura de Certificados (IA)":
-    st.subheader("🤖 Cadastro Inteligente com Inteligência Artificial")
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, nome FROM funcionarios")
-    lista_funcionarios = cursor.fetchall()
-    conn.close()
-    
-    if not lista_funcionarios:
-        st.warning("⚠️ Cadastre pelo menos um funcionário antes de processar certificados com a IA.")
-    else:
-        arquivo_enviado = st.file_uploader("Carregue a foto ou o PDF do Certificado", type=["png", "jpg", "jpeg", "pdf"])
-        if arquivo_enviado is not None:
-            if arquivo_enviado.type in ["image/jpeg", "image/png"]:
-                st.image(arquivo_enviado, caption="Visualização do documento", width=250)
-            if st.button("✨ Analisar com Gemini IA"):
-                with st.spinner("A IA está a extrair as informações... Por favor, aguarde."):
-                    bytes_dados = arquivo_enviado.read()
-                    resultado = analisar_certificado_com_ia(bytes_dados, arquivo_enviado.type)
-                    if "erro" in resultado:
-                        st.error(resultado["erro"])
-                    else:
-                        st.session_state['ia_resultado'] = resultado
-                        st.success("Análise concluída com sucesso!")
-            
-            if 'ia_resultado' in st.session_state:
-                res = st.session_state['ia_resultado']
-                st.info(f"💡 Funcionário identificado no documento pela IA: **{res.get('nome_funcionario')}**")
-                with st.form("confirmar_ia"):
-                    dict_func = {f"{f[1]} (ID: {f[0]})": f[0] for f in lista_funcionarios}
-                    id_selecionado_txt = st.selectbox("Vincular ao Funcionário do Sistema:", list(dict_func.keys()))
-                    id_final = dict_func[id_selecionado_txt]
-                    nome_final_sistema = id_selecionado_txt.split(" (ID:")[0]
-                    curso_final = st.text_input("Curso / Norma Regulamentadora", value=res.get("nome_curso", ""))
-                    emissao_final = st.text_input("Data de Emissão (AAAA-MM-DD)", value=res.get("data_emissao", ""))
-                    validade_final = st.text_input("Data de Validade (AAAA-MM-DD)", value=res.get("data_validade", ""))
-                    if st.form_submit_button("💾 Confirmar e Salvar no Banco"):
-                        conn = sqlite3.connect('alerta_safe.db')
-                        cursor = conn.cursor()
-                        cursor.execute("INSERT INTO certificados (id_funcionario, funcionario, nome_curso, data_emissao, data_validade) VALUES (?, ?, ?, ?, ?)", (id_final, nome_final_sistema, curso_final, emissao_final, validade_final))
-                        conn.commit()
-                        conn.close()
-                        st.balloons()
-                        st.success(f"Curso {curso_final} guardado para {nome_final_sistema}!")
-                        del st.session_state['ia_resultado']
-
-elif opcao == "Gerenciar Crachás / QR Codes":
-    st.subheader("🪪 Emissão de Crachás Digitais Inteligentes")
-    conn = sqlite3.connect('alerta_safe.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, nome, cargo FROM funcionarios")
-    funcs = cursor.fetchall()
-    conn.close()
-    
-    if not funcs:
-        st.warning("Nenhum funcionário cadastrado no sistema.")
-    else:
-        for f_id, f_nome, f_cargo in funcs:
-            with st.expander(f"👤 {f_nome} - {f_cargo or 'Sem cargo'}"):
-                url_consulta = f"{LINK_DA_SUA_VPS}/?p=consultar&id_func={f_id}"
-                qr = qrcode.QRCode(version=1, box_size=8, border=4)
-                qr.add_data(url_consulta)
-                qr.make(fit=True)
-                img = qr.make_image(fill_color="black", back_color="white")
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                byte_im = buf.getvalue()
-                st.image(byte_im, caption="QR Code pronto para crachá", width=150)
-                st.download_button(label=f"📥 Baixar imagem do QR Code", data=byte_im, file_name=f"qrcode_funcionario_{f_id}.png", mime="image/png")
-
-elif opcao == "⚙️ Painel do Dev (Aprovações)":
-    st.title("⚙️ Controle de Clientes")
-    st.write("---")
-    
-    with st.form("form_dev"):
-        senha_dev = st.text_input("Digite a Senha Mestre do Desenvolvedor:", type="password")
-        submeter_dev = st.form_submit_button("Desbloquear Painel")
-    
-    if senha_dev == SENHA_MESTRE_DEV or st.session_state.get('dev_autenticado', False):
-        st.session_state['dev_autenticado'] = True
+    if opcao_dev == "Controle de Clientes":
+        st.title("⚙️ Controle de Acesso e Clientes")
+        st.write("---")
+        
         conn = sqlite3.connect('alerta_safe.db')
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM usuarios")
@@ -407,38 +294,156 @@ elif opcao == "⚙️ Painel do Dev (Aprovações)":
         lista_usuarios = cursor.fetchall()
         conn.close()
         
-        st.metric(label="Clientes Cadastrados", value=total_clientes)
+        st.metric(label="Total de Clientes Cadastrados", value=total_clientes)
         st.write("---")
         
-        col_user, col_status, col_acao = st.columns([3, 2, 2])
+        col_user, col_status, col_acao = st.columns([3, 2, 3])
         with col_user: st.markdown("**Usuário / Cliente**")
         with col_status: st.markdown("**Status Atual**")
-        with col_acao: st.markdown("**Ação**")
+        with col_acao: st.markdown("**Gerenciar Acesso**")
             
+        st.write("") 
+
         for u_id, u_nome, u_status in lista_usuarios:
-            c1, c2, c3 = st.columns([3, 2, 2])
-            with c1: st.write(u_nome)
+            c1, c2, c3 = st.columns([3, 2, 3])
+            
+            with c1:
+                st.write(u_nome)
+                
             with c2:
                 if u_status == 'bloqueado':
-                    st.markdown("<span style='color:red; font-weight:bold;'>🔴 Bloqueado</span>", unsafe_allow_html=True)
+                    st.markdown("<span style='color:#ff4b4b; font-weight:bold;'>🔴 Pendente / Bloqueado</span>", unsafe_allow_html=True)
+                elif u_status == 'faturamento_bloqueado':
+                    st.markdown("<span style='color:#ffaa00; font-weight:bold;'>⚠️ Bloqueio Financeiro</span>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<span style='color:green; font-weight:bold;'>🟢 Permitido</span>", unsafe_allow_html=True)
+                    st.markdown("<span style='color:#00cc66; font-weight:bold;'>🟢 Ativo / Permitido</span>", unsafe_allow_html=True)
+                    
             with c3:
-                if u_status == 'bloqueado':
-                    if st.button("Permitir Acesso", key=f"perm_{u_id}", use_container_width=True):
+                # Se o cliente estiver bloqueado por qualquer motivo, exibe o botão de permitir/confirmar cadastro
+                if u_status != 'aprovado':
+                    if st.button("Aprovar Cadastro ✅", key=f"perm_{u_id}", use_container_width=True):
                         conn = sqlite3.connect('alerta_safe.db')
                         cursor = conn.cursor()
                         cursor.execute("UPDATE usuarios SET status = 'aprovado' WHERE id = ?", (u_id,))
                         conn.commit()
                         conn.close()
                         st.rerun()
-                else:
-                    if st.button("Bloquear", key=f"bloq_{u_id}", use_container_width=True):
+                
+                # Se o cliente estiver ativo ou apenas pendente, dá a opção de bloquear por falta de pagamento
+                if u_status != 'faturamento_bloqueado':
+                    if st.button("Bloquear Pagamento 💳", key=f"pay_{u_id}", use_container_width=True):
                         conn = sqlite3.connect('alerta_safe.db')
                         cursor = conn.cursor()
-                        cursor.execute("UPDATE usuarios SET status = 'bloqueado' WHERE id = ?", (u_id,))
+                        cursor.execute("UPDATE usuarios SET status = 'faturamento_bloqueado' WHERE id = ?", (u_id,))
                         conn.commit()
                         conn.close()
                         st.rerun()
-    elif senha_dev != "":
-        st.error("❌ Senha Mestre do Dev incorreta.")
+
+# --- SE FOR UM CLIENTE OPERACIONAL COMUM ---
+else:
+    st.sidebar.title("Navegação")
+    opcao = st.sidebar.radio("Selecione uma Tela", ["Painel Geral", "Cadastrar Funcionário", "Leitura de Certificados (IA)", "Gerenciar Crachás / QR Codes"])
+
+    if opcao == "Painel Geral":
+        st.subheader("📊 Status de Conformidade Operacional")
+        conn = sqlite3.connect('alerta_safe.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM funcionarios")
+        total_func = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM certificados")
+        total_cert = cursor.fetchone()[0]
+        conn.close()
+        
+        st.metric("Total de Colaboradores Cadastrados", total_func)
+        st.metric("Total de Certificados Ativos no Sistema", total_cert)
+
+    elif opcao == "Cadastrar Funcionário":
+        st.subheader("👤 Cadastro de Colaboradores")
+        with st.form("form_func"):
+            nome = st.text_input("Nome Completo")
+            cpf = st.text_input("CPF")
+            cargo = st.text_input("Cargo / Função")
+            whatsapp = st.text_input("WhatsApp (com DDD)")
+            if st.form_submit_button("Salvar Colaborador"):
+                if nome and cpf:
+                    try:
+                        conn = sqlite3.connect('alerta_safe.db')
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT INTO funcionarios (nome, cpf, cargo, whatsapp) VALUES (?, ?, ?, ?)", (nome, cpf, cargo, whatsapp))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"✅ {nome} cadastrado com sucesso!")
+                    except sqlite3.IntegrityError:
+                        st.error("❌ Este CPF já está cadastrado no sistema.")
+                else:
+                    st.warning("Preencha os campos obrigatórios (Nome e CPF).")
+
+    elif opcao == "Leitura de Certificados (IA)":
+        st.subheader("🤖 Cadastro Inteligente com Inteligência Artificial")
+        conn = sqlite3.connect('alerta_safe.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nome FROM funcionarios")
+        lista_funcionarios = cursor.fetchall()
+        conn.close()
+        
+        if not lista_funcionarios:
+            st.warning("⚠️ Cadastre pelo menos um funcionário antes de processar certificados com a IA.")
+        else:
+            arquivo_enviado = st.file_uploader("Carregue a foto ou o PDF do Certificado", type=["png", "jpg", "jpeg", "pdf"])
+            if arquivo_enviado is not None:
+                if arquivo_enviado.type in ["image/jpeg", "image/png"]:
+                    st.image(arquivo_enviado, caption="Visualização do documento", width=250)
+                if st.button("✨ Analisar com Gemini IA"):
+                    with st.spinner("A IA está a extrair as informações... Por favor, aguarde."):
+                        bytes_dados = arquivo_enviado.read()
+                        resultado = analisar_certificado_com_ia(bytes_dados, arquivo_enviado.type)
+                        if "erro" in resultado:
+                            st.error(resultado["erro"])
+                        else:
+                            st.session_state['ia_resultado'] = resultado
+                            st.success("Análise concluída com sucesso!")
+                
+                if 'ia_resultado' in st.session_state:
+                    res = st.session_state['ia_resultado']
+                    st.info(f"💡 Funcionário identificado no documento pela IA: **{res.get('nome_funcionario')}**")
+                    with st.form("confirmar_ia"):
+                        dict_func = {f"{f[1]} (ID: {f[0]})": f[0] for f in lista_funcionarios}
+                        id_selecionado_txt = st.selectbox("Vincular ao Funcionário do Sistema:", list(dict_func.keys()))
+                        id_final = dict_func[id_selecionado_txt]
+                        nome_final_sistema = id_selecionado_txt.split(" (ID:")[0]
+                        curso_final = st.text_input("Curso / Norma Regulamentadora", value=res.get("nome_curso", ""))
+                        emissao_final = st.text_input("Data de Emissão (AAAA-MM-DD)", value=res.get("data_emissao", ""))
+                        validade_final = st.text_input("Data de Validade (AAAA-MM-DD)", value=res.get("data_validade", ""))
+                        if st.form_submit_button("💾 Confirmar e Salvar no Banco"):
+                            conn = sqlite3.connect('alerta_safe.db')
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT INTO certificados (id_funcionario, funcionario, nome_curso, data_emissao, data_validade) VALUES (?, ?, ?, ?, ?)", (id_final, nome_final_sistema, curso_final, emissao_final, validade_final))
+                            conn.commit()
+                            conn.close()
+                            st.balloons()
+                            st.success(f"Curso {curso_final} guardado para {nome_final_sistema}!")
+                            del st.session_state['ia_resultado']
+
+    elif opcao == "Gerenciar Crachás / QR Codes":
+        st.subheader("🪪 Emissão de Crachás Digitais Inteligentes")
+        conn = sqlite3.connect('alerta_safe.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nome, cargo FROM funcionarios")
+        funcs = cursor.fetchall()
+        conn.close()
+        
+        if not funcs:
+            st.warning("Nenhum funcionário cadastrado no sistema.")
+        else:
+            for f_id, f_nome, f_cargo in funcs:
+                with st.expander(f"👤 {f_nome} - {f_cargo or 'Sem cargo'}"):
+                    url_consulta = f"{LINK_DA_SUA_VPS}/?p=consultar&id_func={f_id}"
+                    qr = qrcode.QRCode(version=1, box_size=8, border=4)
+                    qr.add_data(url_consulta)
+                    qr.make(fit=True)
+                    img = qr.make_image(fill_color="black", back_color="white")
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    byte_im = buf.getvalue()
+                    st.image(byte_im, caption="QR Code pronto para crachá", width=150)
+                    st.download_button(label=f"📥 Baixar imagem do QR Code", data=byte_im, file_name=f"qrcode_funcionario_{f_id}.png", mime="image/png")
