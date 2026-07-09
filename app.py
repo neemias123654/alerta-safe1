@@ -188,7 +188,7 @@ if not st.session_state['logado']:
         * 🕒 **Atendimento:** Segunda a Sexta, das 08h às 18h.
         """)
         
-    # --- ABA 3: EFETUAR LOGIN (COM VALIDAÇÃO DO DEV HARDCODED) ---
+    # --- ABA 3: EFETUAR LOGIN ---
     elif menu_inicial == "🔐 Acessar o Sistema":
         st.title("🔐 Login de Clientes / Gestores")
         st.write("---")
@@ -196,13 +196,11 @@ if not st.session_state['logado']:
         input_pass = st.text_input("Senha", type="password", key="login_pass")
         
         if st.button("Entrar no Painel", use_container_width=True):
-            # Validação do Superusuário Dev Mestre
             if input_user == EMAIL_MASTER_DEV and input_pass == SENHA_MESTRE_DEV:
                 st.session_state['logado'] = True
                 st.session_state['usuario_atual'] = "Dev Mestre 🛠️"
                 st.rerun()
             else:
-                # Se não for o dev mestre, valida normalmente no banco de dados
                 conn = sqlite3.connect('alerta_safe.db')
                 cursor = conn.cursor()
                 cursor.execute("SELECT status FROM usuarios WHERE usuario = ? AND senha = ?", (input_user, input_pass))
@@ -386,50 +384,72 @@ elif opcao == "Gerenciar Crachás / QR Codes":
                 st.download_button(label=f"📥 Baixar imagem do QR Code", data=byte_im, file_name=f"qrcode_funcionario_{f_id}.png", mime="image/png")
 
 # ===================================================================
-# PAINEL DO DEV (ONDE VOCÊ LIBERA OS USUÁRIOS)
+# ⚙️ PAINEL DO DEV ATUALIZADO (MAIS OBJETIVO E LIMPO) ⚙️
 # ===================================================================
 elif opcao == "⚙️ Painel do Dev (Aprovações)":
-    st.subheader("⚙️ Painel do Desenvolvedor - Gerenciamento de Acessos")
+    st.title("⚙️ Controle de Clientes")
+    st.write("---")
     
-    senha_dev = st.text_input("Digite a Senha Mestre do Desenvolvedor para desbloquear esta tela:", type="password")
+    senha_dev = st.text_input("Digite a Senha Mestre do Desenvolvedor:", type="password")
     
     if senha_dev == SENHA_MESTRE_DEV:
-        st.success("🔓 Acesso autorizado, Dev!")
-        st.write("Abaixo estão as contas registradas no banco de dados da plataforma:")
-        
         conn = sqlite3.connect('alerta_safe.db')
         cursor = conn.cursor()
+        
+        # Coleta a quantidade de clientes cadastrados
+        cursor.execute("SELECT COUNT(*) FROM usuarios")
+        total_clientes = cursor.fetchone()[0]
+        
+        # Puxa a lista completa de usuários
         cursor.execute("SELECT id, usuario, status FROM usuarios")
         lista_usuarios = cursor.fetchall()
         conn.close()
         
+        # Métrica limpa no topo
+        st.metric(label="Clientes Cadastrados", value=total_clientes)
+        st.write("---")
+        
+        # Cabeçalho da listagem objetiva
+        col_user, col_status, col_acao = st.columns([3, 2, 2])
+        with col_user:
+            st.markdown("**Usuário / Cliente**")
+        with col_status:
+            st.markdown("**Status Atual**")
+        with col_acao:
+            st.markdown("**Ação**")
+            
+        st.write("") # Espaçador
+
+        # Loop direto pelos usuários
         for u_id, u_nome, u_status in lista_usuarios:
-            col1, col2, col3 = st.columns([2, 2, 2])
-            with col1:
-                st.write(f"👤 **{u_nome}**")
-            with col2:
+            c1, c2, c3 = st.columns([3, 2, 2])
+            
+            with c1:
+                st.write(u_nome)
+                
+            with c2:
                 if u_status == 'bloqueado':
-                    st.warning("🔒 Bloqueado")
+                    st.markdown("<span style='color:red; font-weight:bold;'>🔴 Bloqueado</span>", unsafe_allow_html=True)
                 else:
-                    st.success("🟢 Ativo / Aprovado")
-            with col3:
+                    st.markdown("<span style='color:green; font-weight:bold;'>🟢 Permitido</span>", unsafe_allow_html=True)
+                    
+            with c3:
                 if u_status == 'bloqueado':
-                    if st.button(f"Ativar Acesso", key=f"btn_ativar_{u_id}"):
+                    if st.button("Permitir Acesso", key=f"perm_{u_id}", use_container_width=True):
                         conn = sqlite3.connect('alerta_safe.db')
                         cursor = conn.cursor()
                         cursor.execute("UPDATE usuarios SET status = 'aprovado' WHERE id = ?", (u_id,))
                         conn.commit()
                         conn.close()
-                        st.toast(f"Conta de {u_nome} ativada!")
                         st.rerun()
                 else:
-                    if st.button(f"Bloquear Usuário", key=f"btn_bloq_{u_id}"):
+                    if st.button("Bloquear", key=f"bloq_{u_id}", use_container_width=True):
                         conn = sqlite3.connect('alerta_safe.db')
                         cursor = conn.cursor()
                         cursor.execute("UPDATE usuarios SET status = 'bloqueado' WHERE id = ?", (u_id,))
                         conn.commit()
                         conn.close()
-                        st.toast(f"Conta de {u_nome} bloqueada com sucesso!")
                         st.rerun()
+                        
     elif senha_dev != "":
         st.error("❌ Senha Mestre do Dev incorreta.")
