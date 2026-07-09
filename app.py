@@ -14,8 +14,9 @@ st.set_page_config(page_title="AlertaSafe Enterprise", page_icon="🛡️", layo
 # --- CONFIGURAÇÕES MASTER DO DESENVOLVEDOR ---
 # ===================================================================
 GEMINI_API_KEY = "SUA_API_KEY_DO_GEMINI_AQUI"  # Insira a sua chave do Google AI Studio
-LINK_DA_SUA_VPS = "http://MEU_IP_DA_VPS_AQUI"   # Substitua pelo IP público da sua VPS DokeHost
-SENHA_MESTRE_DEV = "admin123"                  # Senha para você liberar o "Painel do Dev"
+LINK_DA_SUA_VPS = "http://163.245.200.238:8501" # IP público com a porta padrão do Streamlit
+SENHA_MESTRE_DEV = "DEV_MASTER_2026"           # Senha para liberar o "Painel do Dev"
+EMAIL_MASTER_DEV = "neemias123654@gmail.com"   # E-mail mestre para acesso direto
 
 # ===================================================================
 # --- INICIALIZAÇÃO DO BANCO DE DADOS (SQLITE) ---
@@ -153,28 +154,25 @@ if 'logado' not in st.session_state:
     st.session_state['logado'] = False
 
 if not st.session_state['logado']:
-    # Configurando as opções do menu na barra lateral esquerda (Menu Retrátil)
     st.sidebar.title("📌 Menu de Navegação")
     menu_inicial = st.sidebar.radio(
         "Ir para:",
         ["🏠 Início / Sobre a Empresa", "📞 Contato", "🔐 Acessar o Sistema", "✨ Criar Nova Conta"]
     )
     
-    # --- ABA 1: INÍCIO / SOBRE A EMPRESA ---
+    # --- ABA 1: INÍCIO ---
     if menu_inicial == "🏠 Início / Sobre a Empresa":
         st.markdown("<h1 style='text-align: center;'>🛡️ AlertaSafe Enterprise</h1>", unsafe_allow_html=True)
         st.write("---")
-        
         st.markdown("""
         ### O que é o AlertaSafe?
         O **AlertaSafe** é uma plataforma inteligente e automatizada de gestão de conformidade em segurança do trabalho. 
-        Nosso foco principal é garantir que nenhuma operação seja realizada por colaboradores com treinamentos ou Normas Regulamentadoras (NRs) vencidas.
         
         ### Como funciona?
-        1. **Cadastro Inteligente:** Você faz o upload dos certificados dos seus funcionários.
-        2. **Leitura por Inteligência Artificial:** Nossa IA (Gemini) analisa o documento e extrai o nome, curso e datas automaticamente.
+        1. **Cadastro Inteligente:** Faça o upload dos certificados dos funcionários.
+        2. **Leitura por IA:** Nossa IA (Gemini) analisa o documento e extrai os dados automaticamente.
         3. **Crachá com QR Code:** O sistema gera um QR Code exclusivo para cada colaborador.
-        4. **Validação Instantânea:** Qualquer fiscal ou supervisor pode escanear o crachá no campo de trabalho para checar em tempo real se o profissional está regularizado para a atividade.
+        4. **Validação Instantânea:** Qualquer supervisor pode escanear o crachá em campo para checar a regularidade em tempo real.
         
         👈 *Para acessar o painel ou criar sua conta, clique na setinha ou no quadradinho no canto superior esquerdo e selecione a opção desejada.*
         """)
@@ -183,14 +181,14 @@ if not st.session_state['logado']:
     elif menu_inicial == "📞 Contato":
         st.title("📞 Entre em Contato Conosco")
         st.write("---")
-        st.markdown("""
-        Se você tiver dúvidas, problemas técnicos ou desejar planos customizados para grandes empresas, fale diretamente com o nosso suporte oficial:
+        st.markdown(f"""
+        Se você tiver dúvidas, problemas técnicos ou desejar planos customizados, fale diretamente com o suporte oficial:
         
-        * ✉️ **E-mail:** neemias123654@gmail.com
+        * ✉️ **E-mail:** {EMAIL_MASTER_DEV}
         * 🕒 **Atendimento:** Segunda a Sexta, das 08h às 18h.
         """)
         
-    # --- ABA 3: EFETUAR LOGIN ---
+    # --- ABA 3: EFETUAR LOGIN (COM VALIDAÇÃO DO DEV HARDCODED) ---
     elif menu_inicial == "🔐 Acessar o Sistema":
         st.title("🔐 Login de Clientes / Gestores")
         st.write("---")
@@ -198,31 +196,37 @@ if not st.session_state['logado']:
         input_pass = st.text_input("Senha", type="password", key="login_pass")
         
         if st.button("Entrar no Painel", use_container_width=True):
-            conn = sqlite3.connect('alerta_safe.db')
-            cursor = conn.cursor()
-            cursor.execute("SELECT status FROM usuarios WHERE usuario = ? AND senha = ?", (input_user, input_pass))
-            resultado_user = cursor.fetchone()
-            conn.close()
-            
-            if resultado_user:
-                status_atual = resultado_user[0]
-                if status_atual == 'bloqueado':
-                    st.error("🔒 Sua conta foi criada com sucesso, mas está **AGUARDANDO LIBERAÇÃO** do administrador. Tente novamente mais tarde.")
-                else:
-                    st.session_state['logado'] = True
-                    st.session_state['usuario_atual'] = input_user
-                    st.rerun()
+            # Validação do Superusuário Dev Mestre
+            if input_user == EMAIL_MASTER_DEV and input_pass == SENHA_MESTRE_DEV:
+                st.session_state['logado'] = True
+                st.session_state['usuario_atual'] = "Dev Mestre 🛠️"
+                st.rerun()
             else:
-                st.error("❌ Usuário ou senha incorretos.")
+                # Se não for o dev mestre, valida normalmente no banco de dados
+                conn = sqlite3.connect('alerta_safe.db')
+                cursor = conn.cursor()
+                cursor.execute("SELECT status FROM usuarios WHERE usuario = ? AND senha = ?", (input_user, input_pass))
+                resultado_user = cursor.fetchone()
+                conn.close()
                 
-    # --- ABA 4: AUTO-CADASTRO DO CLIENTE ---
+                if resultado_user:
+                    status_atual = resultado_user[0]
+                    if status_atual == 'bloqueado':
+                        st.error("🔒 Sua conta foi criada com sucesso, mas está **AGUARDANDO LIBERAÇÃO**. Tente novamente mais tarde.")
+                    else:
+                        st.session_state['logado'] = True
+                        st.session_state['usuario_atual'] = input_user
+                        st.rerun()
+                else:
+                    st.error("❌ Usuário ou senha incorretos.")
+                
+    # --- ABA 4: AUTO-CADASTRO ---
     elif menu_inicial == "✨ Criar Nova Conta":
         st.title("✨ Solicitar Acesso ao Sistema")
         st.write("---")
-        st.write("Preencha os dados abaixo. Seu usuário ficará em análise para liberação.")
         novo_user = st.text_input("Escolha um Nome de Usuário (Ex: nome da empresa ou e-mail)", key="cad_user")
         nova_pass = st.text_input("Crie uma Senha Segura", type="password", key="cad_pass")
-        confirma_pass = st.text_input("Confirme a sua Senha", type="password", key="cad_pass_conf") # CHAVE CORRIGIDA AQUI
+        confirma_pass = st.text_input("Confirme a sua Senha", type="password", key="cad_pass_conf")
         
         if st.button("Finalizar Meu Cadastro", use_container_width=True):
             if novo_user and nova_pass:
@@ -235,13 +239,13 @@ if not st.session_state['logado']:
                         cursor.execute("INSERT INTO usuarios (usuario, senha, status) VALUES (?, ?, 'bloqueado')", (novo_user, nova_pass))
                         conn.commit()
                         conn.close()
-                        st.success("🎉 Cadastro enviado! Sua conta foi criada com o status **BLOQUEADO**. O desenvolvedor analisará seu acesso para liberação.")
+                        st.success("🎉 Cadastro enviado! Sua conta foi criada com o status **BLOQUEADO**. O administrador analisará seu acesso para liberação.")
                     except sqlite3.IntegrityError:
                         st.error("❌ Este nome de usuário já está sendo utilizado. Escolha outro.")
             else:
                 st.warning("Por favor, preencha todos os campos do formulário.")
                 
-    st.stop() # Não deixa passar para as funções internas enquanto não logar
+    st.stop()
 
 # ===================================================================
 # PARTE 3: FUNÇÃO DA INTELIGÊNCIA ARTIFICIAL (GEMINI)
@@ -382,12 +386,11 @@ elif opcao == "Gerenciar Crachás / QR Codes":
                 st.download_button(label=f"📥 Baixar imagem do QR Code", data=byte_im, file_name=f"qrcode_funcionario_{f_id}.png", mime="image/png")
 
 # ===================================================================
-# NOVA TELA: PAINEL DO DEV (ONDE VOCÊ LIBERA OS USUÁRIOS)
+# PAINEL DO DEV (ONDE VOCÊ LIBERA OS USUÁRIOS)
 # ===================================================================
 elif opcao == "⚙️ Painel do Dev (Aprovações)":
     st.subheader("⚙️ Painel do Desenvolvedor - Gerenciamento de Acessos")
     
-    # Proteção por senha Master para ninguém que está logado conseguir entrar aqui sem permissão
     senha_dev = st.text_input("Digite a Senha Mestre do Desenvolvedor para desbloquear esta tela:", type="password")
     
     if senha_dev == SENHA_MESTRE_DEV:
