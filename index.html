@@ -1,1 +1,444 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlertaSafe Enterprise — Demonstração Comercial</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .tab-active { background-color: #0f172a; color: #ffffff; border-left: 4px solid #3b82f6; }
+        .tab-inactive { color: #cbd5e1; }
+        .tab-inactive:hover { background-color: #1e293b; color: #ffffff; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased">
 
+    <!-- BARRA SUPERIOR DE DEMONSTRAÇÃO COMERCIAL -->
+    <div class="bg-amber-600 text-white px-4 py-2.5 shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
+            <div class="flex items-center gap-2 font-semibold">
+                <span class="bg-white text-amber-700 px-2 py-0.5 rounded font-extrabold uppercase tracking-wider text-[11px]">Modo Demo</span>
+                <span>Apresentação Comercial AlertaSafe Enterprise</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="hidden md:inline text-amber-100">Alternar Visão:</span>
+                <button onclick="switchRole('gerente')" id="btn-role-gerente" class="px-3 py-1 rounded bg-slate-900 text-white font-medium transition shadow-sm">
+                    👔 Visão Gestor
+                </button>
+                <button onclick="switchRole('rh')" id="btn-role-rh" class="px-3 py-1 rounded bg-amber-700 hover:bg-amber-800 text-white font-medium transition">
+                    📋 Visão RH
+                </button>
+                <button onclick="openMobileScanner('regular')" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition shadow-sm flex items-center gap-1.5">
+                    <i class="fas fa-qrcode"></i> Simular Portaria (Celular)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LAYOUT PRINCIPAL DO SISTEMA -->
+    <div class="flex min-h-[calc(100vh-44px)]">
+        
+        <!-- SIDEBAR -->
+        <aside class="w-64 bg-slate-900 text-white flex-shrink-0 hidden md:flex flex-col justify-between">
+            <div>
+                <div class="p-6 border-b border-slate-800">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-xl shadow-lg">
+                            🛡️
+                        </div>
+                        <div>
+                            <h1 class="font-bold text-lg tracking-tight leading-none">AlertaSafe</h1>
+                            <span class="text-[11px] text-blue-400 font-semibold uppercase tracking-widest">Enterprise</span>
+                        </div>
+                    </div>
+                    <div class="mt-4 bg-slate-800/80 rounded-lg p-3 text-xs border border-slate-700/60">
+                        <p class="font-semibold text-white truncate" id="sidebar-user">Carlos Eduardo (Gestor)</p>
+                        <p class="text-slate-400 truncate mt-0.5">Indústria & Serviços Ltda</p>
+                        <p class="text-slate-500 font-mono text-[10px] mt-0.5">CNPJ: 12.345.678/0001-99</p>
+                    </div>
+                </div>
+
+                <nav class="p-3 space-y-1" id="sidebar-nav">
+                    <button onclick="showSection('painel')" id="nav-painel" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium tab-active transition">
+                        <i class="fas fa-chart-pie w-5 text-center"></i> Painel Geral
+                    </button>
+                    <button onclick="showSection('cadastrar')" id="nav-cadastrar" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium tab-inactive transition">
+                        <i class="fas fa-user-plus w-5 text-center"></i> Cadastrar Funcionário
+                    </button>
+                    <button onclick="showSection('aprovacoes-func')" id="nav-aprovacoes-func" class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium tab-inactive transition">
+                        <span class="flex items-center gap-3"><i class="fas fa-inbox w-5 text-center"></i> Aprovações Func.</span>
+                        <span class="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full" id="badge-func-count">2</span>
+                    </button>
+                    <button onclick="showSection('ia-certificados')" id="nav-ia-certificados" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium tab-inactive transition">
+                        <i class="fas fa-robot w-5 text-center text-purple-400"></i> Leitura Certificados (IA)
+                    </button>
+                    <button onclick="showSection('crachas')" id="nav-crachas" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium tab-inactive transition">
+                        <i class="fas fa-id-badge w-5 text-center text-emerald-400"></i> Crachás / QR Codes
+                    </button>
+
+                    <!-- MENU EXCLUSIVO DO GESTOR -->
+                    <div id="gestor-only-menu" class="pt-3 mt-3 border-t border-slate-800 space-y-1">
+                        <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Administração Gestor</p>
+                        <button onclick="showSection('gestao-equipe')" id="nav-gestao-equipe" class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium tab-inactive transition">
+                            <span class="flex items-center gap-3"><i class="fas fa-users-cog w-5 text-center text-amber-400"></i> Contas & Equipe</span>
+                            <span class="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full" id="badge-rh-count">1</span>
+                        </button>
+                        <button onclick="showSection('logs')" id="nav-logs" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium tab-inactive transition">
+                            <i class="fas fa-history w-5 text-center text-slate-400"></i> Logs de Auditoria
+                        </button>
+                    </div>
+                </nav>
+            </div>
+
+            <div class="p-4 border-t border-slate-800 text-xs text-slate-400">
+                <div class="flex items-center gap-2 text-emerald-400 font-medium mb-1">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Sistema Operacional Ativo
+                </div>
+                <p>Versão de Demonstração Web</p>
+            </div>
+        </aside>
+
+        <!-- CONTEÚDO PRINCIPAL -->
+        <main class="flex-1 p-4 sm:p-8 overflow-y-auto">
+            
+            <!-- NAVEGAÇÃO MOBILE -->
+            <div class="md:hidden flex overflow-x-auto gap-2 pb-4 mb-4 border-b border-slate-200">
+                <button onclick="showSection('painel')" class="px-3 py-1.5 bg-slate-900 text-white rounded text-xs whitespace-nowrap">Painel</button>
+                <button onclick="showSection('cadastrar')" class="px-3 py-1.5 bg-white border rounded text-xs whitespace-nowrap">Cadastrar</button>
+                <button onclick="showSection('ia-certificados')" class="px-3 py-1.5 bg-white border rounded text-xs whitespace-nowrap">Leitura IA</button>
+                <button onclick="showSection('crachas')" class="px-3 py-1.5 bg-white border rounded text-xs whitespace-nowrap">QR Codes</button>
+                <button onclick="showSection('gestao-equipe')" id="mob-gestor-btn" class="px-3 py-1.5 bg-amber-100 text-amber-900 border border-amber-300 rounded text-xs whitespace-nowrap">Gestão Contas</button>
+            </div>
+
+            <!-- SEÇÃO 1: PAINEL GERAL -->
+            <section id="sec-painel" class="space-y-6">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-900">Status de Conformidade Operacional</h2>
+                        <p class="text-sm text-slate-500">Monitoramento em tempo real das Normas Regulamentadoras (NRs)</p>
+                    </div>
+                    <button onclick="openMobileScanner('regular')" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm self-start">
+                        <i class="fas fa-mobile-alt"></i> Testar Leitura de Crachá
+                    </button>
+                </div>
+
+                <!-- CARDS DE MÉTRICAS -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between text-slate-500 text-sm font-medium">
+                            <span>Colaboradores Ativos</span>
+                            <i class="fas fa-hard-hat text-blue-600 text-lg"></i>
+                        </div>
+                        <p class="text-3xl font-extrabold text-slate-900 mt-2" id="metric-funcs">142</p>
+                        <p class="text-xs text-emerald-600 font-medium mt-1"><i class="fas fa-arrow-up"></i> 100% documentados</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between text-slate-500 text-sm font-medium">
+                            <span>Treinamentos em Dia</span>
+                            <i class="fas fa-check-circle text-emerald-600 text-lg"></i>
+                        </div>
+                        <p class="text-3xl font-extrabold text-emerald-600 mt-2">468</p>
+                        <p class="text-xs text-slate-500 mt-1">Aptos para campo / embarque</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between text-slate-500 text-sm font-medium">
+                            <span>Alerta (&lt; 30 dias)</span>
+                            <i class="fas fa-exclamation-triangle text-amber-500 text-lg"></i>
+                        </div>
+                        <p class="text-3xl font-extrabold text-amber-500 mt-2">14</p>
+                        <p class="text-xs text-amber-700 mt-1">Reciclagem preventiva necessária</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between text-slate-500 text-sm font-medium">
+                            <span>Bloqueados (Vencidos)</span>
+                            <i class="fas fa-ban text-rose-600 text-lg"></i>
+                        </div>
+                        <p class="text-3xl font-extrabold text-rose-600 mt-2">4</p>
+                        <p class="text-xs text-rose-700 mt-1">Acesso barrado na portaria</p>
+                    </div>
+                </div>
+
+                <!-- TABELA -->
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-5 border-b border-slate-200 flex justify-between items-center">
+                        <h3 class="font-bold text-slate-900">Quadro de Validade de NRs por Colaborador</h3>
+                        <span class="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">Atualizado ao vivo</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+                                    <th class="py-3.5 px-5 font-semibold">Colaborador</th>
+                                    <th class="py-3.5 px-5 font-semibold">Função</th>
+                                    <th class="py-3.5 px-5 font-semibold">Certificado / NR</th>
+                                    <th class="py-3.5 px-5 font-semibold">Validade</th>
+                                    <th class="py-3.5 px-5 font-semibold">Status Portaria</th>
+                                    <th class="py-3.5 px-5 font-semibold text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-sm" id="tabela-colaboradores">
+                                <!-- Preenchido por JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SEÇÃO 2: CADASTRAR -->
+            <section id="sec-cadastrar" class="hidden space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">Cadastro de Colaboradores</h2>
+                    <p class="text-sm text-slate-500">Cadastre diretamente ou utilize o link de auto-cadastro para os funcionários</p>
+                </div>
+
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                    <p class="text-sm font-bold text-blue-900"><i class="fas fa-link mr-1"></i> Link de Auto-Cadastro Externo</p>
+                    <p class="text-xs text-blue-700 mt-1">Os colaboradores preenchem os dados pelo celular e o RH apenas valida:</p>
+                    <code class="block mt-2 bg-white px-3 py-1.5 rounded border border-blue-200 text-xs text-slate-700">https://alertasafe.com.br/?p=cadastrar_func&emp=industria-exemplo</code>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm max-w-2xl">
+                    <h3 class="font-bold text-slate-800 mb-4">Novo Cadastro Direto</h3>
+                    <form onsubmit="addColaborador(event)" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Nome Completo</label>
+                                <input type="text" id="novo-nome" required placeholder="Ex: João Paulo" class="w-full px-3 py-2 border rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">CPF</label>
+                                <input type="text" id="novo-cpf" required placeholder="000.000.000-00" class="w-full px-3 py-2 border rounded-lg text-sm">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Cargo / Função</label>
+                                <input type="text" id="novo-cargo" required placeholder="Ex: Soldador" class="w-full px-3 py-2 border rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">WhatsApp</label>
+                                <input type="text" id="novo-whats" placeholder="(22) 99999-9999" class="w-full px-3 py-2 border rounded-lg text-sm">
+                            </div>
+                        </div>
+                        <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-lg text-sm font-semibold">
+                            Salvar Colaborador
+                        </button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- SEÇÃO 3: APROVAÇÕES -->
+            <section id="sec-aprovacoes-func" class="hidden space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">Aprovações de Auto-Cadastro</h2>
+                    <p class="text-sm text-slate-500">Funcionários cadastrados externamente aguardando liberação do RH</p>
+                </div>
+                <div class="space-y-3" id="lista-pendentes-func">
+                    <div id="pend-f1" class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                        <div>
+                            <span class="text-xs font-bold text-blue-600">Link Externo</span>
+                            <h4 class="font-bold text-slate-900">Marcos Vinícius Almeida</h4>
+                            <p class="text-xs text-slate-500">Cargo: Caldeireiro | CPF: 145.892.330-11</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="aprovarPendente('pend-f1', 'Marcos Vinícius Almeida', 'Caldeireiro')" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-semibold">Confirmar</button>
+                            <button onclick="document.getElementById('pend-f1').remove()" class="bg-rose-100 text-rose-700 px-3 py-1.5 rounded text-xs font-semibold">Recusar</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SEÇÃO 4: LEITURA IA -->
+            <section id="sec-ia-certificados" class="hidden space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">Leitura Inteligente de Certificados (IA)</h2>
+                    <p class="text-sm text-slate-500">O sistema extrai dados do PDF ou foto e calcula a validade da NR sozinho</p>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-center cursor-pointer p-8 bg-slate-50" onclick="simularLeituraIA()">
+                        <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mx-auto text-xl mb-3">
+                            <i class="fas fa-file-pdf"></i>
+                        </div>
+                        <p class="font-semibold text-slate-800 text-sm">Clique para simular o envio de um Certificado PDF</p>
+                        <button class="mt-4 bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-semibold">✨ Extrair com Inteligência Artificial</button>
+                    </div>
+                    <div id="resultado-ia-box" class="bg-white p-6 rounded-xl border border-purple-200 shadow-sm hidden space-y-3">
+                        <p class="text-purple-700 font-bold text-sm"><i class="fas fa-sparkles"></i> Dados Extraídos com Sucesso:</p>
+                        <input type="text" value="Roberto Carlos Mendes" class="w-full px-3 py-2 bg-slate-50 border rounded text-sm">
+                        <input type="text" value="NR-35 - Trabalho em Altura" class="w-full px-3 py-2 bg-slate-50 border rounded text-sm">
+                        <input type="text" value="Validade Calculada: 15/11/2028" class="w-full px-3 py-2 bg-emerald-50 border border-emerald-300 text-emerald-800 font-bold rounded text-sm">
+                        <button onclick="alert('Salvo com sucesso!')" class="w-full bg-emerald-600 text-white py-2 rounded font-semibold text-sm">Salvar no Sistema</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SEÇÃO 5: CRACHÁS -->
+            <section id="sec-crachas" class="hidden space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">Crachás Digitais com QR Code</h2>
+                    <p class="text-sm text-slate-500">Leitura instantânea na portaria para liberação de acesso</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-xl border p-5 text-center space-y-3">
+                        <span class="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">🟢 REGULAR</span>
+                        <h4 class="font-bold text-slate-900">Roberto Carlos Mendes</h4>
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=AlertaSafe-Regular" class="mx-auto">
+                        <button onclick="openMobileScanner('regular')" class="w-full bg-slate-900 text-white py-2 rounded text-xs font-semibold">Simular Leitura</button>
+                    </div>
+                    <div class="bg-white rounded-xl border p-5 text-center space-y-3">
+                        <span class="px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">🟡 ALERTA</span>
+                        <h4 class="font-bold text-slate-900">Anderson Silva</h4>
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=AlertaSafe-Alerta" class="mx-auto">
+                        <button onclick="openMobileScanner('alerta')" class="w-full bg-amber-600 text-white py-2 rounded text-xs font-semibold">Simular Leitura</button>
+                    </div>
+                    <div class="bg-white rounded-xl border p-5 text-center space-y-3">
+                        <span class="px-3 py-1 rounded-full bg-rose-100 text-rose-800 text-xs font-bold">🔴 VENCIDO</span>
+                        <h4 class="font-bold text-slate-900">Diego Ferreira</h4>
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=AlertaSafe-Vencido" class="mx-auto">
+                        <button onclick="openMobileScanner('bloqueado')" class="w-full bg-rose-600 text-white py-2 rounded text-xs font-semibold">Simular Leitura</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SEÇÃO 6: GESTÃO DE CONTAS -->
+            <section id="sec-gestao-equipe" class="hidden space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">Gestão de Contas & Notificações (CNPJ)</h2>
+                    <p class="text-sm text-slate-500">Aprove novos colaboradores de RH vinculados ao seu CNPJ</p>
+                </div>
+                <div id="notif-rh-box" class="bg-amber-50 border border-amber-300 rounded-xl p-4 flex justify-between items-center">
+                    <div>
+                        <span class="bg-amber-500 text-slate-900 text-[10px] font-extrabold px-2 py-0.5 rounded uppercase">Nova Solicitação</span>
+                        <h4 class="font-bold text-slate-900 mt-1">Usuária: juliana.rh</h4>
+                        <p class="text-xs text-slate-600">Solicitou acesso ao RH da empresa.</p>
+                    </div>
+                    <button onclick="document.getElementById('notif-rh-box').remove(); alert('Acesso permitido!')" class="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-semibold">Permitir</button>
+                </div>
+            </section>
+
+            <!-- SEÇÃO 7: LOGS -->
+            <section id="sec-logs" class="hidden space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">Logs de Auditoria</h2>
+                    <p class="text-sm text-slate-500">Histórico jurídico de ações na plataforma</p>
+                </div>
+                <div class="bg-white rounded-xl border overflow-hidden">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50 border-b uppercase text-slate-500">
+                            <tr><th class="p-3">Data/Hora</th><th class="p-3">Usuário</th><th class="p-3">Ação</th></tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            <tr><td class="p-3">19/11/2026 21:00</td><td class="p-3 font-bold">carlos.gestor</td><td class="p-3 text-emerald-700">LOGIN_SISTEMA</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- MODAL PORTARIA / CELULAR -->
+    <div id="modal-scanner" class="fixed inset-0 bg-slate-900/75 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl border-4 border-slate-800">
+            <div class="bg-slate-900 text-white px-5 py-3 flex justify-between text-xs">
+                <span class="font-bold">🛡️ Validação Portaria</span>
+                <button onclick="closeMobileScanner()" class="text-slate-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="bg-slate-100 p-2 flex justify-center gap-1 border-b text-[11px]">
+                <button onclick="setScannerState('regular')" class="px-2 py-1 bg-emerald-600 text-white rounded font-semibold">Regular</button>
+                <button onclick="setScannerState('alerta')" class="px-2 py-1 bg-amber-500 text-white rounded font-semibold">Alerta</button>
+                <button onclick="setScannerState('bloqueado')" class="px-2 py-1 bg-rose-600 text-white rounded font-semibold">Vencido</button>
+            </div>
+            <div class="p-5 space-y-4" id="scanner-body"></div>
+        </div>
+    </div>
+
+    <script>
+        const colaboradores = [
+            { nome: "Roberto Carlos Mendes", cargo: "Soldador", curso: "NR-35 / NR-33", validade: "15/11/2028", status: "regular" },
+            { nome: "Anderson Silva Santos", cargo: "Eletricista", curso: "NR-10 SEP", validade: "01/12/2026", status: "alerta" },
+            { nome: "Diego Ferreira Lima", cargo: "Op. Confinado", curso: "NR-33", validade: "10/10/2026", status: "bloqueado" }
+        ];
+
+        function renderTabela() {
+            const tbody = document.getElementById('tabela-colaboradores');
+            tbody.innerHTML = '';
+            colaboradores.forEach(c => {
+                let badge = c.status === 'regular' ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">🟢 EM DIA</span>' :
+                            c.status === 'alerta' ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">🟡 ALERTA</span>' :
+                            '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800">🔴 VENCIDO</span>';
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="py-3.5 px-5 font-semibold">${c.nome}</td>
+                        <td class="py-3.5 px-5 text-slate-600">${c.cargo}</td>
+                        <td class="py-3.5 px-5">${c.curso}</td>
+                        <td class="py-3.5 px-5 font-mono text-xs">${c.validade}</td>
+                        <td class="py-3.5 px-5">${badge}</td>
+                        <td class="py-3.5 px-5 text-right"><button onclick="openMobileScanner('${c.status}')" class="text-blue-600 text-xs font-semibold">Ver Crachá</button></td>
+                    </tr>
+                `;
+            });
+        }
+
+        function showSection(sec) {
+            ['painel', 'cadastrar', 'aprovacoes-func', 'ia-certificados', 'crachas', 'gestao-equipe', 'logs'].forEach(s => {
+                document.getElementById('sec-' + s).classList.add('hidden');
+                let n = document.getElementById('nav-' + s);
+                if(n) { n.classList.remove('tab-active'); n.classList.add('tab-inactive'); }
+            });
+            document.getElementById('sec-' + sec).classList.remove('hidden');
+            let an = document.getElementById('nav-' + sec);
+            if(an) { an.classList.remove('tab-inactive'); an.classList.add('tab-active'); }
+        }
+
+        function switchRole(role) {
+            const gm = document.getElementById('gestor-only-menu');
+            const mg = document.getElementById('mob-gestor-btn');
+            const su = document.getElementById('sidebar-user');
+            if(role === 'gerente') {
+                gm.classList.remove('hidden'); mg.classList.remove('hidden'); su.innerText = 'Carlos Eduardo (Gestor)';
+            } else {
+                gm.classList.add('hidden'); mg.classList.add('hidden'); su.innerText = 'Fernanda Lima (RH)'; showSection('painel');
+            }
+        }
+
+        function addColaborador(e) {
+            e.preventDefault();
+            colaboradores.unshift({ nome: document.getElementById('novo-nome').value, cargo: document.getElementById('novo-cargo').value, curso: "NR-35", validade: "2028", status: "regular" });
+            renderTabela(); e.target.reset(); alert('Cadastrado com sucesso!'); showSection('painel');
+        }
+
+        function simularLeituraIA() { document.getElementById('resultado-ia-box').classList.remove('hidden'); }
+
+        function openMobileScanner(state) {
+            document.getElementById('modal-scanner').classList.remove('hidden');
+            document.getElementById('modal-scanner').classList.add('flex');
+            setScannerState(state);
+        }
+
+        function closeMobileScanner() {
+            document.getElementById('modal-scanner').classList.add('hidden');
+            document.getElementById('modal-scanner').classList.remove('flex');
+        }
+
+        function setScannerState(state) {
+            let b = document.getElementById('scanner-body');
+            if(state === 'regular') {
+                b.innerHTML = `<div class="bg-emerald-50 border-2 border-emerald-500 rounded-xl p-4 text-center"><p class="text-emerald-800 font-extrabold">🟩 TRABALHO LIBERADO</p><p class="text-xs text-emerald-700 mt-1">Todas as NRs em dia.</p></div>`;
+            } else if(state === 'alerta') {
+                b.innerHTML = `<div class="bg-amber-50 border-2 border-amber-500 rounded-xl p-4 text-center"><p class="text-amber-800 font-extrabold">🟨 ATENÇÃO EXIGIDA</p><p class="text-xs text-amber-700 mt-1">Vence em menos de 30 dias.</p></div>`;
+            } else {
+                b.innerHTML = `<div class="bg-rose-50 border-2 border-rose-600 rounded-xl p-4 text-center"><p class="text-rose-800 font-extrabold">🟥 ACESSO BLOQUEADO</p><p class="text-xs text-rose-700 mt-1">Treinamento vencido!</p></div>`;
+            }
+        }
+
+        renderTabela();
+    </script>
+</body>
+</html>
